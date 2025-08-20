@@ -1,0 +1,126 @@
+# Cursor AI Assistant Rules for ClipFlow Project
+
+## File Creation & Documentation Rules
+- Do NOT create markdown (.md) files unless explicitly requested by the user
+- Do NOT create documentation files proactively
+- Focus on code implementation rather than documentation generation
+- Only create README or documentation when specifically asked
+
+## Database Safety Rules
+- NEVER execute direct database delete or drop commands without explicit user confirmation
+- NEVER run MongoDB commands that could result in data loss (dropDatabase, drop, deleteMany without filters)
+- Always ask for confirmation before any destructive database operations
+- When working with database migrations or schema changes, explain the impact first
+- Use safe database operations and provide rollback strategies
+
+## Terminal Command Rules
+- ALWAYS ask for user confirmation before running any terminal commands
+- Do NOT execute npm install, build, or deployment commands without permission
+- Explain what each command will do before executing
+- For long-running processes, ask if they should run in background
+- Never run commands that could affect production environments
+
+## Code Quality & Standards
+- Follow NestJS best practices and conventions
+- Use TypeScript strict typing
+- Implement proper error handling and logging
+- Use DTOs for request/response validation
+- Follow the existing project structure and patterns
+- Maintain separation of concerns (controllers, services, DTOs, schemas)
+
+## Security Rules
+- Never hardcode secrets or sensitive data
+- Always use environment variables for configuration
+- Implement proper authentication and authorization
+- Validate all inputs using class-validator
+- Use bcrypt for password hashing with appropriate salt rounds
+- Implement rate limiting for authentication endpoints
+
+## MongoDB & Mongoose Rules
+- Use proper Mongoose schemas with validation
+- Implement proper indexing strategies
+- Use transactions for multi-document operations
+- Handle MongoDB connection errors gracefully
+- Use proper TypeScript types for MongoDB documents
+- Avoid direct MongoDB queries in controllers
+
+## Testing & Development Rules
+- Write unit tests for services and controllers
+- Use proper mocking for database operations in tests
+- Implement integration tests for API endpoints
+- Follow test-driven development when adding new features
+- Ensure all tests pass before suggesting code changes
+
+## Authentication & Authorization Rules
+- Use JWT tokens with appropriate expiration times
+- Implement proper password reset flows with token validation
+- Use role-based access control (Admin/User)
+- Implement proper logout mechanisms
+- Validate JWT tokens on protected routes
+- Use secure password policies
+
+## API Design Rules
+- Follow RESTful API conventions
+- Use appropriate HTTP status codes
+- Implement proper error responses with meaningful messages
+- Use consistent response formats across endpoints
+- Implement proper pagination for list endpoints
+- Use DTOs for request validation and response formatting
+
+## Environment & Configuration Rules
+- Never commit sensitive environment variables
+- Use .env files for local development
+- Provide clear environment variable documentation
+- Use different configurations for different environments
+- Validate required environment variables on startup
+
+## Git & Version Control Rules
+- Never commit node_modules or build artifacts
+- Use meaningful commit messages
+- Suggest proper .gitignore entries
+- Don't commit sensitive files like .env with real credentials
+
+## Performance Rules
+- Implement proper database indexing
+- Use pagination for large data sets
+- Avoid N+1 query problems
+- Implement proper caching strategies where appropriate
+- Use connection pooling for database connections
+
+## Error Handling Rules
+- Use proper NestJS exception filters
+- Log errors with appropriate detail levels
+- Return user-friendly error messages
+- Implement proper validation error responses
+- Use structured logging for better debugging
+
+## Development Workflow Rules
+- Always check for linting errors before suggesting code is complete
+- Build the project to ensure compilation success
+- Test critical paths after making changes
+- Suggest appropriate environment variable additions
+- Maintain backwards compatibility when possible
+
+## Code Organization Rules
+- Keep controllers thin - business logic belongs in services
+- Use proper dependency injection
+- Implement proper interfaces and abstracts where beneficial
+- Follow single responsibility principle
+- Use proper naming conventions for files and classes
+- Group related functionality in modules
+
+## Data Validation Rules
+- Use class-validator decorators for input validation
+- Implement proper sanitization for user inputs
+- Validate file uploads if implemented
+- Use proper TypeScript types throughout the application
+- Implement proper enum validations where applicable
+
+## Monitoring & Logging Rules
+- Implement structured logging with proper log levels
+- Log important business events
+- Don't log sensitive information (passwords, tokens)
+- Use correlation IDs for request tracking
+- Implement proper health check endpoints
+
+Remember: Always prioritize user confirmation for potentially destructive or environment-changing operations.
