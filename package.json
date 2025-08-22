@@ -1,10 +1,14 @@
 {
   "name": "clipflow",
   "version": "0.0.1",
-  "description": "",
+  "description": "ClipFlow - AI-Powered Video Clip Generation API",
   "author": "",
   "private": true,
   "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20.19.0",
+    "npm": ">=9.0.0"
+  },
   "scripts": {
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
@@ -18,7 +22,8 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "railway:deploy": "npm ci && npm run build && npm run start:prod"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.872.0",
@@ -51,10 +56,10 @@
     "reflect-metadata": "^0.1.13",
     "rxjs": "^7.8.1",
     "swagger-ui-express": "^5.0.1",
-    "uuid": "^11.1.0"
+    "uuid": "^11.1.0",
+    "@aws-sdk/client-sts": "^3.872.0"
   },
   "devDependencies": {
-    "@aws-sdk/client-sts": "^3.872.0",
     "@nestjs/cli": "^10.0.0",
     "@nestjs/schematics": "^10.0.0",
     "@nestjs/testing": "^10.0.0",

@@ -37,11 +37,16 @@ async function bootstrap() {
     },
   });
 
+  // Enable CORS for production
+  app.enableCors({
+    origin: '*',
+    credentials: true,
+  });
+
   const port = process.env.PORT || 3000;
-  await app.listen(port);
-  console.log(`Application is running on: http://localhost:${port}`);
-  console.log(
-    `Swagger documentation is available at: http://localhost:${port}/api`,
-  );
+  await app.listen(port, '0.0.0.0'); // Bind to all interfaces for Railway
+  console.log(`Application is running on port: ${port}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`Swagger documentation is available at: /api`);
 }
 bootstrap();

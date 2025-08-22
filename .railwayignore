@@ -1,0 +1,41 @@
+# Railway ignore file
+# Files and directories to ignore during Railway deployment
+
+# Development files
+.env.local
+.env.development
+.env.test
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Coverage reports
+coverage/
+.nyc_output/
+
+# Test files (optional - remove if you want to run tests in production)
+test/
+**/*.spec.ts
+**/*.test.ts
+
+# Documentation (optional)
+docs/
+*.md
+!RAILWAY_DEPLOYMENT.md
+
+# Local uploads (these should be handled by S3 in production)
+uploads/
+
+# Source maps in production
+*.map

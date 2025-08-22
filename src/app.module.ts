@@ -28,7 +28,10 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
       }),
     }),
     MongooseModule.forRoot(
-      process.env.MONGODB_URI || 'mongodb://localhost:27017/clipflow',
+      process.env.MONGODB_URI || 'mongodb://localhost:27017',
+      {
+        dbName: process.env.MONGODB_DB_NAME || 'clipflow',
+      },
     ),
     AuthModule,
     EmailModule,

@@ -47,10 +47,23 @@ export class CreateClipProjectWithSrtDto {
 
   @ApiPropertyOptional({
     description:
-      'Google Drive URL for the raw video file (use this OR upload local file)',
+      'Google Drive URL for the raw video file (use this OR upload local file OR AWS S3 file)',
     example: 'https://drive.google.com/file/d/1a2b3c4d5e6f7g8h9i0j/view',
   })
   rawFileUrl?: string;
+
+  @ApiPropertyOptional({
+    description: 'AWS S3 file URL from chunked upload (required for video files)',
+    example:
+      'https://bucket.s3.amazonaws.com/uploads/user123/videos/file123.mp4',
+  })
+  awsFileUrl?: string;
+
+  @ApiPropertyOptional({
+    description: 'Upload session ID from chunked upload (if using AWS upload)',
+    example: 'session_abc123-def456',
+  })
+  uploadSessionId?: string;
 
   @ApiPropertyOptional({
     description: 'OpenAI model to use for analysis and generation',
@@ -564,15 +577,70 @@ export class UploadToSignedUrlRequestDto {
   @IsOptional()
   @IsObject()
   metadata?: Record<string, any>;
+
+  @ApiPropertyOptional({
+    description:
+      'Enable chunked upload for large files. If not specified, will auto-decide based on file size.',
+    example: true,
+    default: false,
+  })
+  @IsOptional()
+  enableChunkedUpload?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Chunk size in bytes for chunked upload (5MB to 100MB recommended)',
+    example: 5242880, // 5MB
+    minimum: 1024 * 1024, // 1MB minimum
+    maximum: 100 * 1024 * 1024, // 100MB maximum
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(1024 * 1024)
+  @Max(100 * 1024 * 1024)
+  chunkSize?: number;
+}
+
+export class ChunkUploadInfo {
+  @ApiProperty({
+    description: 'Chunk number (1-based)',
+    example: 1,
+  })
+  chunkNumber: number;
+
+  @ApiProperty({
+    description: 'Pre-signed URL for uploading this chunk',
+    example:
+      'https://s3.amazonaws.com/my-bucket/uploads/user123/abc-123-def.mp4?partNumber=1&uploadId=...',
+  })
+  signedUrl: string;
+
+  @ApiProperty({
+    description: 'Expiration time for this chunk URL (in seconds)',
+    example: 3600,
+  })
+  expiresIn: number;
+
+  @ApiProperty({
+    description: 'Expected size of this chunk in bytes',
+    example: 5242880, // 5MB
+  })
+  expectedSize: number;
 }
 
 export class SignedUrlUploadResponseDto {
   @ApiProperty({
-    description: 'Pre-signed URL for file upload',
+    description: 'Indicates if this is a chunked upload',
+    example: false,
+  })
+  isChunkedUpload: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Pre-signed URL for file upload (single upload only)',
     example:
       'https://s3.amazonaws.com/my-bucket/uploads/user123/abc-123-def.mp4?X-Amz-Algorithm=...',
   })
-  signedUrl: string;
+  signedUrl?: string;
 
   @ApiProperty({
     description: 'Unique file identifier for tracking',
@@ -622,6 +690,207 @@ export class SignedUrlUploadResponseDto {
     description: 'Timestamp when the signed URL was created',
   })
   createdAt: Date;
+
+  // Chunked upload specific fields
+  @ApiPropertyOptional({
+    description: 'Upload session ID for chunked uploads',
+    example: 'session_abc123',
+  })
+  sessionId?: string;
+
+  @ApiPropertyOptional({
+    description: 'S3 multipart upload ID for chunked uploads',
+    example: 'upload_xyz789',
+  })
+  uploadId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Total number of chunks',
+    example: 10,
+  })
+  totalChunks?: number;
+
+  @ApiPropertyOptional({
+    description: 'Size of each chunk in bytes',
+    example: 5242880,
+  })
+  chunkSize?: number;
+
+  @ApiPropertyOptional({
+    description: 'Array of signed URLs for each chunk',
+    type: [ChunkUploadInfo],
+  })
+  chunkUrls?: ChunkUploadInfo[];
+}
+
+// Chunked upload management DTOs
+export class UpdateChunkStatusDto {
+  @ApiProperty({
+    description: 'Upload session ID',
+    example: 'session_abc123',
+  })
+  @IsString()
+  sessionId: string;
+
+  @ApiProperty({
+    description: 'Chunk number (1-based)',
+    example: 1,
+    minimum: 1,
+  })
+  @IsNumber()
+  @Min(1)
+  chunkNumber: number;
+
+  @ApiProperty({
+    description: 'ETag returned by S3 after chunk upload',
+    example: '"d41d8cd98f00b204e9800998ecf8427e"',
+  })
+  @IsString()
+  eTag: string;
+
+  @ApiProperty({
+    description: 'Actual size of uploaded chunk in bytes',
+    example: 5242880,
+    minimum: 1,
+  })
+  @IsNumber()
+  @Min(1)
+  size: number;
+}
+
+export class CompleteChunkedUploadDto {
+  @ApiProperty({
+    description: 'Upload session ID',
+    example: 'session_abc123',
+  })
+  @IsString()
+  sessionId: string;
+}
+
+export class AbortChunkedUploadDto {
+  @ApiProperty({
+    description: 'Upload session ID',
+    example: 'session_abc123',
+  })
+  @IsString()
+  sessionId: string;
+
+  @ApiPropertyOptional({
+    description: 'Reason for aborting the upload',
+    example: 'User cancelled upload',
+  })
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+export class ChunkStatusInfo {
+  @ApiProperty({
+    description: 'Chunk number',
+    example: 1,
+  })
+  chunkNumber: number;
+
+  @ApiProperty({
+    description: 'Whether this chunk has been uploaded',
+    example: true,
+  })
+  isCompleted: boolean;
+
+  @ApiProperty({
+    description: 'ETag of uploaded chunk',
+    example: '"d41d8cd98f00b204e9800998ecf8427e"',
+  })
+  eTag: string;
+
+  @ApiProperty({
+    description: 'Size of uploaded chunk in bytes',
+    example: 5242880,
+  })
+  size: number;
+
+  @ApiPropertyOptional({
+    description: 'When this chunk was uploaded',
+  })
+  uploadedAt?: Date;
+}
+
+export class UploadProgressResponseDto {
+  @ApiProperty({
+    description: 'Upload session ID',
+    example: 'session_abc123',
+  })
+  sessionId: string;
+
+  @ApiProperty({
+    description: 'Current upload status',
+    example: 'uploading',
+    enum: ['initializing', 'uploading', 'completed', 'failed', 'aborted'],
+  })
+  status: string;
+
+  @ApiProperty({
+    description: 'Total number of chunks',
+    example: 10,
+  })
+  totalChunks: number;
+
+  @ApiProperty({
+    description: 'Number of completed chunks',
+    example: 7,
+  })
+  completedChunks: number;
+
+  @ApiProperty({
+    description: 'Upload progress percentage (0-100)',
+    example: 70,
+  })
+  progressPercentage: number;
+
+  @ApiProperty({
+    description: 'Total file size in bytes',
+    example: 52428800,
+  })
+  totalFileSize: number;
+
+  @ApiProperty({
+    description: 'Uploaded size in bytes',
+    example: 36700160,
+  })
+  uploadedSize: number;
+
+  @ApiProperty({
+    description: 'Status of each chunk',
+    type: [ChunkStatusInfo],
+  })
+  chunks: ChunkStatusInfo[];
+
+  @ApiPropertyOptional({
+    description: 'Final file URL (available when completed)',
+    example:
+      'https://s3.amazonaws.com/my-bucket/uploads/user123/abc-123-def.mp4',
+  })
+  finalFileUrl?: string;
+
+  @ApiPropertyOptional({
+    description: 'Error message if upload failed',
+  })
+  errorMessage?: string;
+
+  @ApiProperty({
+    description: 'Session creation timestamp',
+  })
+  createdAt: Date;
+
+  @ApiPropertyOptional({
+    description: 'Upload completion timestamp',
+  })
+  completedAt?: Date;
+
+  @ApiProperty({
+    description: 'Session expiration timestamp',
+  })
+  expiresAt: Date;
 }
 
 export class UploadStatusDto {

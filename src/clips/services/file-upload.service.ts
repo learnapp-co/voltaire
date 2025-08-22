@@ -1,9 +1,17 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { google } from 'googleapis';
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import {
+  S3Client,
+  GetObjectCommand,
+  PutObjectCommand,
+  CreateMultipartUploadCommand,
+  UploadPartCommand,
+  CompleteMultipartUploadCommand,
+  AbortMultipartUploadCommand,
+  ListPartsCommand,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { STSClient, AssumeRoleCommand } from '@aws-sdk/client-sts';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -38,7 +46,7 @@ export interface SignedUrlConfig {
 }
 
 export interface SignedUrlResult {
-  signedUrl: string;
+  signedUrl?: string;
   fileId: string;
   fileUrl: string;
   readUrl: string;
@@ -47,6 +55,50 @@ export interface SignedUrlResult {
   headers?: Record<string, string>;
   maxFileSize: number;
   createdAt: Date;
+  // Chunked upload fields
+  isChunkedUpload: boolean;
+  sessionId?: string;
+  uploadId?: string;
+  totalChunks?: number;
+  chunkSize?: number;
+  chunkUrls?: Array<{
+    chunkNumber: number;
+    signedUrl: string;
+    expiresIn: number;
+    expectedSize: number;
+  }>;
+}
+
+export interface MultipartUploadConfig {
+  fileId: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+  fileType: 'video' | 'audio' | 'document' | 'image' | 'other';
+  userId: string;
+  chunkSize: number;
+  totalChunks: number;
+  expiresIn?: number;
+  metadata?: Record<string, any>;
+}
+
+export interface MultipartUploadResult {
+  uploadId: string;
+  bucket: string;
+  key: string;
+  sessionId: string;
+  chunkUrls: Array<{
+    chunkNumber: number;
+    signedUrl: string;
+    expiresIn: number;
+    expectedSize: number;
+  }>;
+}
+
+export interface ChunkPart {
+  PartNumber: number;
+  ETag: string;
+  Size?: number;
 }
 
 @Injectable()
@@ -54,7 +106,7 @@ export class FileUploadService {
   private readonly logger = new Logger(FileUploadService.name);
   private readonly uploadPath: string;
   private drive: any;
-  private s3: S3Client;
+  private s3Client: S3Client;
 
   constructor(private configService: ConfigService) {
     // Set up upload directory
@@ -140,7 +192,7 @@ export class FileUploadService {
 
         const assumeRoleResult = await stsClient.send(assumeRoleCommand);
 
-        this.s3 = new S3Client({
+        this.s3Client = new S3Client({
           region: awsRegion,
           credentials: {
             accessKeyId: assumeRoleResult.Credentials.AccessKeyId,
@@ -158,17 +210,22 @@ export class FileUploadService {
       }
     } else {
       // Direct credentials
-      const awsAccessKeyId =
-        this.configService.get<string>('AWS_ACCESS_KEY_ID');
-      const awsSecretAccessKey = this.configService.get<string>(
-        'AWS_SECRET_ACCESS_KEY',
+      const awsAccessKeyId = this.configService.get<string>(
+        'AWS_ROOT_ACCESS_KEY_ID',
       );
+      const awsSecretAccessKey = this.configService.get<string>(
+        'AWS_ROOT_SECRET_ACCESS_KEY',
+      );
+      const awsRegion = this.configService.get<string>('AWS_REGION');
 
       if (!awsAccessKeyId || !awsSecretAccessKey) {
-        throw new Error('AWS credentials not configured');
+        this.logger.warn(
+          'AWS credentials not configured. File upload will use local storage only.',
+        );
+        return;
       }
 
-      this.s3 = new S3Client({
+      this.s3Client = new S3Client({
         region: awsRegion,
         credentials: {
           accessKeyId: awsAccessKeyId,
@@ -562,15 +619,40 @@ export class FileUploadService {
   }
 
   /**
-   * Generate signed URL for file upload to AWS S3
+   * Generate signed URL for file upload to AWS S3 (supports both single and chunked uploads)
    */
-  async generateSignedUrl(config: SignedUrlConfig): Promise<SignedUrlResult> {
+  async generateSignedUrl(
+    config: SignedUrlConfig,
+    enableChunkedUpload?: boolean,
+    chunkSize?: number,
+  ): Promise<SignedUrlResult> {
     try {
       // Validate file type and size
       this.validateUploadConfig(config);
 
-      // Generate S3 signed URL
-      return this.generateS3SignedUrl(config);
+      // Determine if we should use chunked upload
+      const shouldUseChunkedUpload = this.shouldUseChunkedUpload(
+        config.fileSize,
+        enableChunkedUpload,
+      );
+
+      if (shouldUseChunkedUpload) {
+        // Use chunked upload for large files
+        const calculatedChunkSize =
+          chunkSize || this.getOptimalChunkSize(config.fileSize);
+
+        return this.generateMultipartSignedUrl(
+          config.fileName,
+          config.fileSize,
+          config.mimeType,
+          config.fileType,
+          calculatedChunkSize,
+          config.metadata,
+        );
+      } else {
+        // Use single upload for smaller files
+        return this.generateS3SignedUrl(config);
+      }
     } catch (error) {
       this.logger.error('Error generating signed URL:', error);
       throw new BadRequestException(
@@ -580,7 +662,7 @@ export class FileUploadService {
   }
 
   /**
-   * Generate S3 signed URL
+   * Generate S3 signed URL for single upload
    */
   private async generateS3SignedUrl(
     config: SignedUrlConfig,
@@ -601,7 +683,7 @@ export class FileUploadService {
       ContentLength: config.fileSize,
     });
 
-    const signedUrl = await getSignedUrl(this.s3, putCommand, {
+    const signedUrl = await getSignedUrl(this.s3Client, putCommand, {
       expiresIn,
     });
 
@@ -611,7 +693,7 @@ export class FileUploadService {
       Key: key,
     });
 
-    const readUrl = await getSignedUrl(this.s3, getCommand);
+    const readUrl = await getSignedUrl(this.s3Client, getCommand);
 
     const fileUrl = `https://${bucket}.s3.amazonaws.com/${key}`;
 
@@ -628,7 +710,317 @@ export class FileUploadService {
       },
       maxFileSize: config.fileSize,
       createdAt: new Date(),
+      isChunkedUpload: false,
     };
+  }
+
+  /**
+   * Generate multipart upload signed URLs
+   */
+  private async generateMultipartSignedUrl(
+    fileName: string,
+    fileSize: number,
+    mimeType: string,
+    fileType: string,
+    chunkSize: number,
+    metadata?: Record<string, any>,
+  ): Promise<SignedUrlResult> {
+    try {
+      const bucket = this.configService.get<string>('AWS_S3_BUCKET');
+      if (!bucket) {
+        throw new Error('AWS S3 bucket not configured');
+      }
+
+      const key = `uploads/${uuidv4()}/${fileType}s/${uuidv4()}`; // Generate a unique key for each upload
+      const expiresIn = 3600; // 1 hour default
+
+      // Calculate optimal chunk size and total chunks
+      const { optimalChunkSize, totalChunks } = this.calculateChunkParameters(
+        fileSize,
+        chunkSize,
+      );
+
+      // Initiate multipart upload
+      const multipartUpload = await this.s3Client.send(
+        new CreateMultipartUploadCommand({
+          Bucket: bucket,
+          Key: key,
+          Metadata: metadata,
+          ContentType: mimeType,
+        }),
+      );
+
+      const uploadId = multipartUpload.UploadId;
+      if (!uploadId) {
+        throw new Error('Failed to get upload ID from AWS S3');
+      }
+
+      // Generate signed URLs for each chunk
+      const chunkUrls: Array<{
+        chunkNumber: number;
+        signedUrl: string;
+        expiresIn: number;
+        expectedSize: number;
+      }> = [];
+      for (let i = 1; i <= totalChunks; i++) {
+        const startByte = (i - 1) * optimalChunkSize;
+        const endByte = Math.min(
+          startByte + optimalChunkSize - 1,
+          fileSize - 1,
+        );
+
+        // Create upload part command
+        const uploadPartCommand = new UploadPartCommand({
+          Bucket: bucket,
+          Key: key,
+          UploadId: uploadId,
+          PartNumber: i,
+          Body: '', // This will be provided by the client
+        });
+
+        // Generate signed URL for this chunk
+        const signedUrl = await getSignedUrl(this.s3Client, uploadPartCommand, {
+          expiresIn,
+        });
+
+        chunkUrls.push({
+          chunkNumber: i,
+          signedUrl,
+          expiresIn,
+          expectedSize: endByte - startByte + 1,
+        });
+      }
+
+      // Generate GET signed URL for reading (will be available after completion)
+      const getCommand = new GetObjectCommand({
+        Bucket: bucket,
+        Key: key,
+      });
+
+      const readUrl = await getSignedUrl(this.s3Client, getCommand);
+      const fileUrl = `https://${bucket}.s3.amazonaws.com/${key}`;
+
+      return {
+        signedUrl: '', // Not used for chunked uploads
+        fileId: uuidv4(), // Generate a unique fileId for chunked uploads
+        fileUrl,
+        readUrl,
+        expiresIn,
+        method: 'PUT',
+        maxFileSize: fileSize,
+        createdAt: new Date(),
+        isChunkedUpload: true,
+        sessionId: `session_${uuidv4()}`,
+        uploadId,
+        totalChunks,
+        chunkSize: optimalChunkSize,
+        chunkUrls, // Return signed URLs for each chunk
+      };
+    } catch (error) {
+      this.logger.error('Error generating multipart signed URLs:', error);
+      throw new Error(
+        `Failed to generate multipart signed URLs: ${error.message}`,
+      );
+    }
+  }
+
+  /**
+   * Generate signed URLs for all chunks
+   */
+  private async generateChunkSignedUrls(
+    bucket: string,
+    key: string,
+    uploadId: string,
+    totalChunks: number,
+    chunkSize: number,
+    totalFileSize: number,
+    expiresIn: number,
+  ): Promise<
+    Array<{
+      chunkNumber: number;
+      signedUrl: string;
+      expiresIn: number;
+      expectedSize: number;
+    }>
+  > {
+    const chunkUrls = [];
+
+    for (let i = 1; i <= totalChunks; i++) {
+      const command = new UploadPartCommand({
+        Bucket: bucket,
+        Key: key,
+        UploadId: uploadId,
+        PartNumber: i,
+      });
+
+      const signedUrl = await getSignedUrl(this.s3Client, command, {
+        expiresIn,
+      });
+
+      // Calculate expected size for this chunk
+      const isLastChunk = i === totalChunks;
+      const expectedSize = isLastChunk
+        ? totalFileSize - (i - 1) * chunkSize
+        : chunkSize;
+
+      chunkUrls.push({
+        chunkNumber: i,
+        signedUrl,
+        expiresIn,
+        expectedSize,
+      });
+    }
+
+    return chunkUrls;
+  }
+
+  /**
+   * Complete multipart upload
+   */
+  async completeMultipartUpload(
+    bucket: string,
+    key: string,
+    uploadId: string,
+    parts: ChunkPart[],
+  ): Promise<string> {
+    this.logger.log(
+      `Attempting AWS S3 multipart upload completion with ${parts.length} parts`,
+    );
+    this.logger.log(`Parts eTags: ${parts.map((p) => p.ETag).join(', ')}`);
+
+    try {
+      const command = new CompleteMultipartUploadCommand({
+        Bucket: bucket,
+        Key: key,
+        UploadId: uploadId,
+        MultipartUpload: {
+          Parts: parts.map((part) => ({
+            PartNumber: part.PartNumber,
+            ETag: part.ETag,
+          })),
+        },
+      });
+
+      const result = await this.s3Client.send(command);
+      const finalUrl =
+        result.Location || `https://${bucket}.s3.amazonaws.com/${key}`;
+      this.logger.log(
+        `✅ AWS S3 multipart upload completed successfully: ${finalUrl}`,
+      );
+      return finalUrl;
+    } catch (error) {
+      this.logger.error('Error completing multipart upload:', error);
+
+      if (
+        error.name === 'NoSuchUpload' ||
+        error.message?.includes('NoSuchUpload')
+      ) {
+        this.logger.error(
+          '🚨 AWS S3 multipart upload session expired or not found',
+        );
+        this.logger.error(
+          'This might be due to timing - the multipart upload session expired before completion',
+        );
+        this.logger.error(
+          'The chunks were uploaded to AWS S3 but the upload was not completed in time',
+        );
+
+        throw new Error(
+          `AWS multipart upload session expired. Upload ID: ${uploadId}. Chunks were uploaded but session timed out before completion.`,
+        );
+      }
+
+      throw new Error(`Failed to complete multipart upload: ${error.message}`);
+    }
+  }
+
+  /**
+   * Abort multipart upload
+   */
+  async abortMultipartUpload(
+    bucket: string,
+    key: string,
+    uploadId: string,
+  ): Promise<void> {
+    try {
+      const command = new AbortMultipartUploadCommand({
+        Bucket: bucket,
+        Key: key,
+        UploadId: uploadId,
+      });
+
+      await this.s3Client.send(command);
+      this.logger.log(`Aborted multipart upload: ${uploadId}`);
+    } catch (error) {
+      this.logger.error('Error aborting multipart upload:', error);
+      throw new Error(`Failed to abort multipart upload: ${error.message}`);
+    }
+  }
+
+  /**
+   * List uploaded parts for a multipart upload
+   */
+  async listMultipartUploadParts(
+    bucket: string,
+    key: string,
+    uploadId: string,
+  ): Promise<Array<{ PartNumber: number; ETag: string; Size: number }>> {
+    try {
+      const command = new ListPartsCommand({
+        Bucket: bucket,
+        Key: key,
+        UploadId: uploadId,
+      });
+
+      const result = await this.s3Client.send(command);
+      return (
+        result.Parts?.map((part) => ({
+          PartNumber: part.PartNumber!,
+          ETag: part.ETag!,
+          Size: part.Size!,
+        })) || []
+      );
+    } catch (error) {
+      this.logger.error('Error listing multipart upload parts:', error);
+      throw new Error(
+        `Failed to list multipart upload parts: ${error.message}`,
+      );
+    }
+  }
+
+  /**
+   * Determine if chunked upload should be used
+   */
+  private shouldUseChunkedUpload(
+    fileSize: number,
+    enableChunkedUpload?: boolean,
+  ): boolean {
+    // If explicitly enabled/disabled, respect that choice
+    if (enableChunkedUpload !== undefined) {
+      return enableChunkedUpload;
+    }
+
+    // Auto-decide based on file size
+    const CHUNKED_UPLOAD_THRESHOLD = 100 * 1024 * 1024; // 100MB
+    return fileSize > CHUNKED_UPLOAD_THRESHOLD;
+  }
+
+  /**
+   * Calculate optimal chunk size based on file size
+   */
+  private getOptimalChunkSize(fileSize: number): number {
+    const MIN_CHUNK_SIZE = 5 * 1024 * 1024; // 5MB (S3 minimum)
+    const MAX_CHUNK_SIZE = 100 * 1024 * 1024; // 100MB
+    const TARGET_CHUNKS = 100; // Aim for around 100 chunks max
+
+    let chunkSize = Math.ceil(fileSize / TARGET_CHUNKS);
+
+    // Ensure chunk size is within S3 limits
+    chunkSize = Math.max(chunkSize, MIN_CHUNK_SIZE);
+    chunkSize = Math.min(chunkSize, MAX_CHUNK_SIZE);
+
+    // Round to nearest MB for cleaner chunks
+    return Math.ceil(chunkSize / (1024 * 1024)) * 1024 * 1024;
   }
 
   /**
@@ -740,5 +1132,32 @@ export class FileUploadService {
     } catch (error) {
       this.logger.error('Error cleaning up old files:', error);
     }
+  }
+
+  /**
+   * Calculate optimal chunk size and total chunks
+   */
+  private calculateChunkParameters(
+    fileSize: number,
+    requestedChunkSize?: number,
+  ): { optimalChunkSize: number; totalChunks: number } {
+    const MIN_CHUNK_SIZE = 5 * 1024 * 1024; // 5MB (S3 minimum)
+    const MAX_CHUNK_SIZE = 100 * 1024 * 1024; // 100MB
+    const TARGET_CHUNKS = 100; // Aim for around 100 chunks max
+
+    let optimalChunkSize =
+      requestedChunkSize || Math.ceil(fileSize / TARGET_CHUNKS);
+
+    // Ensure chunk size is within S3 limits
+    optimalChunkSize = Math.max(optimalChunkSize, MIN_CHUNK_SIZE);
+    optimalChunkSize = Math.min(optimalChunkSize, MAX_CHUNK_SIZE);
+
+    // Round to nearest MB for cleaner chunks
+    optimalChunkSize =
+      Math.ceil(optimalChunkSize / (1024 * 1024)) * 1024 * 1024;
+
+    const totalChunks = Math.ceil(fileSize / optimalChunkSize);
+
+    return { optimalChunkSize, totalChunks };
   }
 }

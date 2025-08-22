@@ -105,14 +105,14 @@ export class Clip {
   @Prop({ required: true })
   rawFileSize: number; // In bytes
 
-  @Prop({ required: true })
-  srtFileUrl: string; // Uploaded SRT file path
+  @Prop()
+  srtFileUrl?: string; // Uploaded SRT file path
 
-  @Prop({ required: true })
-  srtFileName: string;
+  @Prop()
+  srtFileName?: string;
 
-  @Prop({ required: true })
-  srtContent: string; // Raw SRT content
+  @Prop()
+  srtContent?: string; // Raw SRT content
 
   // AI Configuration
   @Prop({ enum: OpenAIModel, default: OpenAIModel.GPT_4_MINI })
@@ -161,6 +161,24 @@ export class Clip {
 
   @Prop({ default: 0 })
   estimatedCost: number; // Estimated cost in USD
+
+  @Prop({
+    type: {
+      uploadSessionId: String,
+      bucket: String,
+      key: String,
+      region: String,
+      uploadedAt: Date,
+    },
+    required: false,
+  })
+  awsMetadata?: {
+    uploadSessionId?: string;
+    bucket?: string;
+    key?: string;
+    region?: string;
+    uploadedAt?: Date;
+  };
 
   // Mongoose adds these automatically with timestamps: true
   createdAt?: Date;

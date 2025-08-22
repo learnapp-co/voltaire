@@ -1,0 +1,47 @@
+# Dependencies
+node_modules
+npm-debug.log
+
+# Environment files
+.env*
+!.env.example
+
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+docs/
+*.md
+!RAILWAY_DEPLOYMENT.md
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage/
+.nyc_output/
+test/
+**/*.spec.ts
+**/*.test.ts
+
+# Build artifacts
+dist/
+
+# Logs
+logs/
+*.log
+
+# Uploads (should use external storage in production)
+uploads/
+
+# Railway specific
+.railway/

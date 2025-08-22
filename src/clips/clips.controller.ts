@@ -14,7 +14,6 @@ import {
   HttpStatus,
   Logger,
   BadRequestException,
-  NotFoundException,
 } from '@nestjs/common';
 import {
   FileInterceptor,
@@ -35,6 +34,8 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { ClipsService } from './clips.service';
 import { FileUploadService } from './services/file-upload.service';
+import { UploadSessionService } from './services/upload-session.service';
+import { ConfigService } from '@nestjs/config';
 import {
   CreateClipProjectDto,
   CreateClipProjectWithSrtDto,
@@ -48,7 +49,10 @@ import {
   MessageResponseDto,
   UploadToSignedUrlRequestDto,
   SignedUrlUploadResponseDto,
-  UploadStatusDto,
+  UpdateChunkStatusDto,
+  CompleteChunkedUploadDto,
+  AbortChunkedUploadDto,
+  UploadProgressResponseDto,
 } from './dto/clips.dto';
 
 @Public()
@@ -62,6 +66,8 @@ export class ClipsController {
   constructor(
     private readonly clipsService: ClipsService,
     private readonly fileUploadService: FileUploadService,
+    private readonly uploadSessionService: UploadSessionService,
+    private readonly configService: ConfigService,
   ) {}
 
   @Public()
@@ -69,12 +75,12 @@ export class ClipsController {
   @ApiOperation({
     summary: 'Create a new clip project with SRT file',
     description:
-      'Create a new clip project with project name, video source (Google Drive URL OR local file upload), and SRT subtitle file. Theme analysis will start automatically.',
+      'Create a new clip project with project name, video source (Google Drive URL OR AWS S3 file from chunked upload), and SRT subtitle file. Theme analysis will start automatically.',
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     description:
-      'Project details and files. Provide either rawFileUrl OR localVideoFile, not both.',
+      'Project details and files. Provide either rawFileUrl OR localVideoFile OR awsFileUrl, not multiple.',
     schema: {
       type: 'object',
       properties: {
@@ -145,21 +151,25 @@ export class ClipsController {
       `Creating clip project with SRT: ${body.title} for user: ${userId}`,
     );
 
-    // Validate that either rawFileUrl or localVideoFile is provided
+    // Validate that only one video source is provided
     const hasGoogleDriveUrl =
       body.rawFileUrl && body.rawFileUrl.trim().length > 0;
-    const hasLocalFile =
-      files.localVideoFile && files.localVideoFile.length > 0;
+    const hasAwsFile = body.awsFileUrl && body.awsFileUrl.trim().length > 0;
 
-    if (!hasGoogleDriveUrl && !hasLocalFile) {
+    // Count video sources
+    const videoSourceCount = [hasGoogleDriveUrl, hasAwsFile].filter(
+      Boolean,
+    ).length;
+
+    if (videoSourceCount === 0) {
       throw new BadRequestException(
-        'Either rawFileUrl (Google Drive URL) or localVideoFile must be provided',
+        'Must provide one video source: rawFileUrl (Google Drive) OR awsFileUrl (AWS S3)',
       );
     }
 
-    if (hasGoogleDriveUrl && hasLocalFile) {
+    if (videoSourceCount > 1) {
       throw new BadRequestException(
-        'Provide either rawFileUrl OR localVideoFile, not both',
+        'Provide only one video source: rawFileUrl OR awsFileUrl',
       );
     }
 
@@ -180,22 +190,15 @@ export class ClipsController {
       srtFileName: srtFile.originalname,
     };
 
-    if (hasLocalFile) {
-      const localVideoFile = files.localVideoFile![0];
-
-      // Validate video file
-      if (!this.isValidVideoFile(localVideoFile)) {
-        throw new BadRequestException(
-          'Invalid video file format. Supported formats: mp4, mov, avi, mkv, wmv',
-        );
-      }
-
-      return this.clipsService.createClipProjectWithLocalFile(
+    if (hasAwsFile) {
+      // Handle AWS S3 file from chunked upload
+      return this.clipsService.createClipProjectWithAwsFile(
         body.title,
-        localVideoFile,
+        body.awsFileUrl!,
         uploadSrtDto,
         body.selectedModel,
         userId,
+        body.uploadSessionId,
       );
     } else {
       const createClipProjectDto: CreateClipProjectDto = {
@@ -215,25 +218,6 @@ export class ClipsController {
   private isValidSRTFile(file: Express.Multer.File): boolean {
     const allowedMimeTypes = ['text/plain', 'application/x-subrip'];
     const allowedExtensions = ['.srt'];
-    const extension = file.originalname
-      .toLowerCase()
-      .slice(file.originalname.lastIndexOf('.'));
-
-    return (
-      allowedMimeTypes.includes(file.mimetype) ||
-      allowedExtensions.includes(extension)
-    );
-  }
-
-  private isValidVideoFile(file: Express.Multer.File): boolean {
-    const allowedMimeTypes = [
-      'video/mp4',
-      'video/quicktime', // .mov
-      'video/x-msvideo', // .avi
-      'video/x-matroska', // .mkv
-      'video/x-ms-wmv', // .wmv
-    ];
-    const allowedExtensions = ['.mp4', '.mov', '.avi', '.mkv', '.wmv'];
     const extension = file.originalname
       .toLowerCase()
       .slice(file.originalname.lastIndexOf('.'));
@@ -565,9 +549,10 @@ export class ClipsController {
 
   @Post('upload/signed-url')
   @ApiOperation({
-    summary: 'Generate signed URL for file upload',
+    summary:
+      'Generate signed URL for file upload (supports both single and chunked uploads)',
     description:
-      'Generate a pre-signed URL for uploading files directly to cloud storage',
+      'Generate a pre-signed URL for uploading files directly to cloud storage. Automatically uses chunked upload for large files or when explicitly requested.',
   })
   @ApiResponse({
     status: 201,
@@ -586,7 +571,7 @@ export class ClipsController {
     const userId = user?.sub || 'test-user-id';
 
     this.logger.log(
-      `Generating signed URL for file: ${requestDto.fileName} (${requestDto.fileSize} bytes) for user: ${userId}`,
+      `Generating signed URL for file: ${requestDto.fileName} (${requestDto.fileSize} bytes) for user: ${userId}. Chunked upload: ${requestDto.enableChunkedUpload || 'auto'}`,
     );
 
     // Generate unique file ID
@@ -595,126 +580,233 @@ export class ClipsController {
       requestDto.fileName,
     );
 
-    // Generate signed URL
-    const result = await this.fileUploadService.generateSignedUrl({
-      fileId,
-      fileName: requestDto.fileName,
-      fileSize: requestDto.fileSize,
-      mimeType: requestDto.mimeType,
-      fileType: requestDto.fileType || 'other',
-      userId,
-      expiresIn: 3600, // 1 hour
-      metadata: requestDto.metadata,
-    });
+    // Generate signed URL with chunked upload support
+    const result = await this.fileUploadService.generateSignedUrl(
+      {
+        fileId,
+        fileName: requestDto.fileName,
+        fileSize: requestDto.fileSize,
+        mimeType: requestDto.mimeType,
+        fileType: requestDto.fileType || 'other',
+        userId,
+        expiresIn: 3600, // 1 hour
+        metadata: requestDto.metadata,
+      },
+      requestDto.enableChunkedUpload,
+      requestDto.chunkSize,
+    );
+
+    // If it's a chunked upload, create upload session
+    if (result.isChunkedUpload && result.sessionId && result.uploadId) {
+      const bucket = this.configService.get<string>('AWS_S3_BUCKET');
+      const key = `uploads/${userId}/${requestDto.fileType || 'other'}s/${fileId}`;
+
+      // Create upload session and get the created session
+      const uploadSession = await this.uploadSessionService.createUploadSession({
+        userId,
+        fileName: requestDto.fileName,
+        fileSize: requestDto.fileSize,
+        mimeType: requestDto.mimeType,
+        fileType: requestDto.fileType || 'other',
+        totalChunks: result.totalChunks!,
+        chunkSize: result.chunkSize!,
+        uploadId: result.uploadId,
+        bucket: bucket!,
+        key,
+        metadata: requestDto.metadata,
+        expiresIn: 3600,
+      });
+
+      // Update session status to uploading using the created session's ID
+      await this.uploadSessionService.updateSessionStatus(
+        uploadSession.sessionId,
+        'uploading' as any,
+      );
+
+      // Replace the sessionId in the result with the actual one from the database
+      result.sessionId = uploadSession.sessionId;
+    }
 
     return result;
   }
 
-  @Get('upload/status/:fileId')
+  @Post('upload/chunk/status')
   @ApiOperation({
-    summary: 'Check upload status',
+    summary: 'Update chunk upload status',
     description:
-      'Check if a file has been successfully uploaded to the signed URL',
-  })
-  @ApiParam({
-    name: 'fileId',
-    description: 'File identifier returned from signed URL generation',
-    example: 'user123_1234567890_abc123_my_video.mp4',
+      'Update the status of an uploaded chunk in a chunked upload session',
   })
   @ApiResponse({
     status: 200,
-    description: 'Upload status information',
-    type: UploadStatusDto,
+    description: 'Chunk status updated successfully',
+    type: UploadProgressResponseDto,
   })
   @ApiResponse({
-    status: 404,
-    description: 'File not found or upload not completed',
+    status: 400,
+    description: 'Invalid chunk data or session not found',
   })
-  async getUploadStatus(
-    @Param('fileId') fileId: string,
+  async updateChunkStatus(
+    @Body() updateDto: UpdateChunkStatusDto,
     @CurrentUser() user: any,
-  ): Promise<UploadStatusDto> {
-    // Handle public access (no authentication) with default test user
+  ): Promise<UploadProgressResponseDto> {
     const userId = user?.sub || 'test-user-id';
 
     this.logger.log(
-      `Checking upload status for file: ${fileId} by user: ${userId}`,
+      `Updating chunk ${updateDto.chunkNumber} status for session: ${updateDto.sessionId} by user: ${userId}`,
     );
 
-    // Generate S3 file URL - extract userId and fileType from the request
-    const bucket = process.env.AWS_S3_BUCKET;
-    const fileType = 'other'; // Default file type, could be extracted from fileId if needed
-    const fileUrl = `https://${bucket}.s3.amazonaws.com/uploads/${userId}/${fileType}s/${fileId}`;
-
-    // Verify upload completion
-    const verification = await this.fileUploadService.verifyUploadCompletion(
-      fileId,
-      fileUrl,
+    // Update chunk status
+    await this.uploadSessionService.updateChunkStatus(
+      updateDto.sessionId,
+      updateDto.chunkNumber,
+      updateDto.eTag,
+      updateDto.size,
     );
 
-    if (!verification.exists) {
-      throw new NotFoundException('File not found or upload not completed');
-    }
-
-    return {
-      fileId,
-      status: 'completed',
-      fileUrl,
-      fileSize: verification.fileSize || 0,
-      uploadedAt: verification.lastModified || new Date(),
-    };
+    // Return current progress
+    return this.uploadSessionService.getUploadProgress(updateDto.sessionId);
   }
 
-  @Post('upload/complete/:fileId')
+  @Post('upload/chunk/complete')
   @ApiOperation({
-    summary: 'Mark upload as complete',
-    description:
-      'Notify the system that a file upload has been completed (for tracking purposes)',
-  })
-  @ApiParam({
-    name: 'fileId',
-    description: 'File identifier returned from signed URL generation',
-    example: 'user123_1234567890_abc123_my_video.mp4',
+    summary: 'Complete chunked upload',
+    description: 'Complete a chunked upload session by combining all chunks',
   })
   @ApiResponse({
     status: 200,
-    description: 'Upload marked as complete',
+    description: 'Chunked upload completed successfully',
+    type: UploadProgressResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Upload session not ready for completion or invalid',
+  })
+  async completeChunkedUpload(
+    @Body() completeDto: CompleteChunkedUploadDto,
+    @CurrentUser() user: any,
+  ): Promise<UploadProgressResponseDto> {
+    const userId = user?.sub || 'test-user-id';
+
+    this.logger.log(
+      `Completing chunked upload for session: ${completeDto.sessionId} by user: ${userId}`,
+    );
+
+    // Get upload session
+    const session = await this.uploadSessionService.getUploadSession(
+      completeDto.sessionId,
+    );
+
+    // Validate all chunks are uploaded
+    if (!this.uploadSessionService.validateAllChunksUploaded(session)) {
+      throw new BadRequestException('Not all chunks have been uploaded');
+    }
+
+    // Get completed parts for S3
+    const parts = this.uploadSessionService.getCompletedChunkParts(session);
+
+    // Complete S3 multipart upload
+    const finalFileUrl = await this.fileUploadService.completeMultipartUpload(
+      session.bucket,
+      session.key,
+      session.uploadId,
+      parts,
+    );
+
+    // Update session as completed
+    await this.uploadSessionService.completeUploadSession(
+      completeDto.sessionId,
+      finalFileUrl,
+    );
+
+    this.logger.log(`Chunked upload completed: ${finalFileUrl}`);
+
+    // Return final progress
+    return this.uploadSessionService.getUploadProgress(completeDto.sessionId);
+  }
+
+  @Delete('upload/chunk/:sessionId')
+  @ApiOperation({
+    summary: 'Abort chunked upload',
+    description: 'Abort a chunked upload session and clean up resources',
+  })
+  @ApiParam({
+    name: 'sessionId',
+    description: 'Upload session ID',
+    example: 'session_abc123',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Chunked upload aborted successfully',
     type: MessageResponseDto,
   })
   @ApiResponse({
     status: 404,
-    description: 'File not found',
+    description: 'Upload session not found',
   })
-  async markUploadComplete(
-    @Param('fileId') fileId: string,
+  async abortChunkedUpload(
+    @Param('sessionId') sessionId: string,
+    @Body() abortDto: AbortChunkedUploadDto,
     @CurrentUser() user: any,
   ): Promise<MessageResponseDto> {
-    // Handle public access (no authentication) with default test user
     const userId = user?.sub || 'test-user-id';
 
     this.logger.log(
-      `Marking upload complete for file: ${fileId} by user: ${userId}`,
+      `Aborting chunked upload for session: ${sessionId} by user: ${userId}. Reason: ${abortDto.reason || 'User requested'}`,
     );
 
-    // This could be expanded to update a database record tracking upload status
-    // For now, we'll just verify the file exists in S3
-    const bucket = process.env.AWS_S3_BUCKET;
-    const fileType = 'other'; // Default file type, could be extracted from fileId if needed
-    const fileUrl = `https://${bucket}.s3.amazonaws.com/uploads/${userId}/${fileType}s/${fileId}`;
+    // Get upload session
+    const session = await this.uploadSessionService.getUploadSession(sessionId);
 
-    const verification = await this.fileUploadService.verifyUploadCompletion(
-      fileId,
-      fileUrl,
-    );
-
-    if (!verification.exists) {
-      throw new NotFoundException(
-        'File not found - upload may not have completed successfully',
+    // Abort S3 multipart upload
+    try {
+      await this.fileUploadService.abortMultipartUpload(
+        session.bucket,
+        session.key,
+        session.uploadId,
       );
+    } catch (error) {
+      this.logger.warn(`Failed to abort S3 multipart upload: ${error.message}`);
+      // Continue with session cleanup even if S3 abort fails
     }
 
-    return {
-      message: `File ${fileId} upload marked as complete`,
-    };
+    // Update session as aborted
+    await this.uploadSessionService.abortUploadSession(
+      sessionId,
+      abortDto.reason,
+    );
+
+    return { message: 'Chunked upload aborted successfully' };
+  }
+
+  @Get('upload/progress/:sessionId')
+  @ApiOperation({
+    summary: 'Get upload progress',
+    description: 'Get the current progress of a chunked upload session',
+  })
+  @ApiParam({
+    name: 'sessionId',
+    description: 'Upload session ID',
+    example: 'session_abc123',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Upload progress information',
+    type: UploadProgressResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Upload session not found',
+  })
+  async getUploadProgress(
+    @Param('sessionId') sessionId: string,
+    @CurrentUser() user: any,
+  ): Promise<UploadProgressResponseDto> {
+    const userId = user?.sub || 'test-user-id';
+
+    this.logger.log(
+      `Getting upload progress for session: ${sessionId} by user: ${userId}`,
+    );
+
+    return this.uploadSessionService.getUploadProgress(sessionId);
   }
 }
