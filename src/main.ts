@@ -28,9 +28,18 @@ async function bootstrap() {
     .addTag('auth', 'Authentication and user management endpoints')
     .addTag('users', 'User CRUD operations')
     .addTag('email', 'Email service endpoints')
+    .addTag('clips', 'Clip project management, generation, and collaboration')
+    .addTag('invitations', 'Collaboration invitation handling')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
+
+  // Serve raw Swagger JSON at /api-json
+  app.getHttpAdapter().get('/api-json', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.send(document);
+  });
+
   SwaggerModule.setup('api', app, document, {
     swaggerOptions: {
       persistAuthorization: true,
@@ -48,5 +57,6 @@ async function bootstrap() {
   console.log(`Application is running on port: ${port}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`Swagger documentation is available at: /api`);
+  console.log(`Swagger JSON document is available at: /api-json`);
 }
 bootstrap();
