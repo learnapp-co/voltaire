@@ -4,6 +4,7 @@ import {
   SendEmailDto,
   WelcomeEmailDto,
   PasswordResetEmailDto,
+  CollaboratorInvitationEmailDto,
   EmailResponseDto,
 } from './dto/email.dto';
 
@@ -107,6 +108,53 @@ export class EmailService {
     } catch (error) {
       this.logger.error(
         `Error sending password reset email to ${data.email}:`,
+        error,
+      );
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
+  }
+
+  /**
+   * Send collaborator invitation email
+   */
+  async sendCollaboratorInvitation(
+    data: CollaboratorInvitationEmailDto,
+  ): Promise<EmailResponseDto> {
+    try {
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+      const invitationUrl = `${frontendUrl}/invitations/accept?token=${data.invitationToken}`;
+
+      const result = await this.mailerService.sendMail({
+        to: data.email,
+        subject: `Invitation to collaborate on "${data.projectTitle}"`,
+        template: 'collaborator-invitation',
+        context: {
+          inviterFirstName: data.inviterFirstName,
+          inviterLastName: data.inviterLastName,
+          inviterFullName: `${data.inviterFirstName} ${data.inviterLastName}`,
+          projectTitle: data.projectTitle,
+          invitationToken: data.invitationToken,
+          invitationUrl: invitationUrl,
+          message: data.message,
+          needsSignup: data.needsSignup,
+          frontendUrl: frontendUrl,
+        },
+      });
+
+      this.logger.log(
+        `Collaborator invitation sent to ${data.email} for project "${data.projectTitle}"`,
+      );
+
+      return {
+        success: true,
+        messageId: result.messageId,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Error sending collaborator invitation to ${data.email}:`,
         error,
       );
       return {

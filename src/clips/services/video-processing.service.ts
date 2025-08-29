@@ -3,8 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import * as ffmpeg from 'fluent-ffmpeg';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as https from 'https';
 import { v4 as uuidv4 } from 'uuid';
 import { GeneratedClipDto } from '../dto/clips.dto';
+import { S3UploadService } from './s3-upload.service';
 
 export interface VideoClipResult {
   clipId: string;
@@ -32,7 +34,10 @@ export class VideoProcessingService {
   private readonly logger = new Logger(VideoProcessingService.name);
   private readonly outputPath: string;
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService,
+    private s3UploadService: S3UploadService,
+  ) {
     this.outputPath = path.join(
       this.configService.get<string>('UPLOAD_PATH') || './uploads',
       'clips',
@@ -180,12 +185,12 @@ export class VideoProcessingService {
           const result: VideoClipResult = {
             clipId,
             title: clip.title,
-            description: clip.description,
+            description: '', // Simplified: no description in new DTO
             startTime: clip.startTime,
             endTime: clip.endTime,
             duration: clip.duration,
-            transcript: clip.transcript,
-            hashtags: clip.hashtags || [],
+            transcript: '', // Simplified: no transcript in new DTO
+            hashtags: [], // Simplified: no hashtags in new DTO
             videoUrl,
             filePath: outputPath,
             fileSize,
@@ -270,21 +275,6 @@ export class VideoProcessingService {
   }
 
   /**
-   * Download video from Google Drive (if needed)
-   */
-  async downloadGoogleDriveVideo(
-    fileId: string,
-    outputPath: string,
-  ): Promise<string> {
-    // This would require Google Drive API integration to download the file
-    // For now, we'll assume the file is already accessible or return the original path
-    this.logger.warn(
-      'Google Drive video download not yet implemented. Using direct URL.',
-    );
-    return outputPath;
-  }
-
-  /**
    * Get video metadata
    */
   async getVideoMetadata(videoPath: string): Promise<any> {
@@ -354,4 +344,257 @@ export class VideoProcessingService {
     const i = Math.floor(Math.log(bytes) / Math.log(1024));
     return Math.round((bytes / Math.pow(1024, i)) * 100) / 100 + ' ' + sizes[i];
   }
+
+  /**
+   * Extract a clip from a source video and upload to S3
+   */
+  async extractClip(options: ExtractClipOptions): Promise<ExtractClipResult> {
+    const {
+      sourceVideoUrl,
+      startTime,
+      endTime,
+      outputFormat = 'mp4',
+      quality = 'medium',
+      includeFades = false,
+      userId,
+      projectId,
+      clipId,
+    } = options;
+
+    const duration = endTime - startTime;
+    const outputFileName = `${userId}_${projectId}_${clipId}_${Date.now()}.${outputFormat}`;
+    const outputPath = path.join(this.outputPath, outputFileName);
+
+    let tempSourcePath: string | undefined;
+
+    this.logger.log(
+      `🎬 Extracting clip ${clipId} from ${sourceVideoUrl}, start: ${startTime}s, end: ${endTime}s`,
+    );
+    this.logger.log(
+      `⚙️ Processing settings - Quality: ${quality}, Format: ${outputFormat}, Duration: ${duration}s`,
+    );
+    this.logger.log(`📁 Output file: ${outputFileName}`);
+
+    try {
+      // Step 1: Generate signed URL for S3 videos so FFmpeg can access them
+      if (this.s3UploadService.isValidS3Url(sourceVideoUrl)) {
+        this.logger.log(
+          `🔗 Source is S3 URL, generating signed URL for FFmpeg access: ${clipId}`,
+        );
+
+        tempSourcePath =
+          await this.s3UploadService.generateSignedReadUrl(sourceVideoUrl);
+        this.logger.log(`✅ Generated signed URL for FFmpeg input`);
+      } else {
+        this.logger.log(
+          `📁 Source is local file, using direct path: ${sourceVideoUrl}`,
+        );
+        tempSourcePath = sourceVideoUrl; // Use direct path for local files
+      }
+
+      // Step 2: Process video with FFmpeg locally using signed URL
+      this.logger.log(`🎞️ Starting FFmpeg processing for clip ${clipId}...`);
+      const localResult = await this.processVideoLocally(
+        tempSourcePath,
+        startTime,
+        duration,
+        outputPath,
+        quality,
+        includeFades,
+      );
+      this.logger.log(
+        `✅ FFmpeg processing completed - Size: ${localResult.fileSize} bytes`,
+      );
+
+      // Step 3: Upload to S3 with project organization
+      this.logger.log(`☁️ Uploading clip ${clipId} to S3...`);
+      const clipUrl = await this.s3UploadService.uploadLocalFileToS3(
+        outputPath,
+        projectId,
+        clipId,
+        outputFormat,
+      );
+      this.logger.log(`✅ S3 upload completed: ${clipUrl}`);
+
+      // Step 4: Clean up local output file
+      this.logger.log(`🧹 Cleaning up local file: ${outputPath}`);
+      this.cleanupTempFiles([outputPath]);
+
+      this.logger.log(
+        `🎉 Successfully processed and uploaded clip ${clipId} to S3: ${clipUrl}`,
+      );
+
+      // Return S3 URL instead of local URL
+      return {
+        clipUrl, // AWS S3 URL
+        fileSize: localResult.fileSize,
+        duration,
+        format: outputFormat,
+        processedAt: new Date(),
+      };
+    } catch (error) {
+      this.logger.error(`Error extracting clip ${clipId}:`, error);
+
+      // Clean up local output file on error
+      this.cleanupTempFiles([outputPath]);
+
+      throw error;
+    }
+  }
+
+  /**
+   * Process video locally with FFmpeg
+   */
+  private async processVideoLocally(
+    sourceVideoUrl: string,
+    startTime: number,
+    duration: number,
+    outputPath: string,
+    quality: string,
+    includeFades: boolean,
+  ): Promise<{ fileSize: number }> {
+    return new Promise((resolve, reject) => {
+      let command = ffmpeg(sourceVideoUrl)
+        .seekInput(startTime)
+        .duration(duration)
+        .output(outputPath);
+
+      // Set quality settings
+      switch (quality) {
+        case 'low':
+          command = command.videoBitrate('500k').audioBitrate('64k');
+          break;
+        case 'high':
+          command = command.videoBitrate('2000k').audioBitrate('192k');
+          break;
+        default: // medium
+          command = command.videoBitrate('1000k').audioBitrate('128k');
+      }
+
+      // Add fade effects if requested
+      if (includeFades) {
+        command = command.videoFilters([
+          'fade=in:0:30',
+          `fade=out:${Math.max(0, duration * 30 - 30)}:30`,
+        ]);
+      }
+
+      command
+        .on('start', (commandLine) => {
+          this.logger.log(`FFmpeg process started: ${commandLine}`);
+        })
+        .on('progress', (progress) => {
+          this.logger.debug(
+            `Processing: ${Math.round(progress.percent || 0)}% done`,
+          );
+        })
+        .on('end', () => {
+          this.logger.log(`Local clip generation completed: ${outputPath}`);
+
+          // Get file stats
+          const stats = fs.statSync(outputPath);
+          resolve({ fileSize: stats.size });
+        })
+        .on('error', (error) => {
+          this.logger.error(`FFmpeg error: ${error.message}`);
+          reject(error);
+        })
+        .run();
+    });
+  }
+
+  /**
+   * Download S3 video to temporary local storage
+   */
+  private async downloadS3VideoToTemp(
+    s3Url: string,
+    sessionId: string,
+  ): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const tempFileName = `source_${sessionId}.mp4`;
+      const tempFilePath = path.join(this.outputPath, 'temp', tempFileName);
+
+      // Ensure temp directory exists
+      const tempDir = path.dirname(tempFilePath);
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+      }
+
+      this.logger.log(`Downloading S3 video to temp: ${tempFilePath}`);
+
+      const file = fs.createWriteStream(tempFilePath);
+
+      https
+        .get(s3Url, (response) => {
+          if (response.statusCode === 403) {
+            reject(
+              new Error(
+                'S3 access denied. Video may not be publicly accessible.',
+              ),
+            );
+            return;
+          }
+
+          if (response.statusCode !== 200) {
+            reject(
+              new Error(
+                `Failed to download video: HTTP ${response.statusCode}`,
+              ),
+            );
+            return;
+          }
+
+          response.pipe(file);
+
+          file.on('finish', () => {
+            file.close();
+            this.logger.log(
+              `S3 video downloaded successfully: ${tempFilePath}`,
+            );
+            resolve(tempFilePath);
+          });
+        })
+        .on('error', (error) => {
+          fs.unlink(tempFilePath, () => {}); // Clean up on error
+          this.logger.error(`Error downloading S3 video: ${error.message}`);
+          reject(error);
+        });
+    });
+  }
+
+  /**
+   * Clean up temporary files
+   */
+  private cleanupTempFiles(filePaths: (string | undefined)[]): void {
+    for (const filePath of filePaths) {
+      if (filePath && fs.existsSync(filePath)) {
+        try {
+          fs.unlinkSync(filePath);
+          this.logger.debug(`Cleaned up temp file: ${filePath}`);
+        } catch (error) {
+          this.logger.warn(`Failed to clean up temp file ${filePath}:`, error);
+        }
+      }
+    }
+  }
+}
+
+export interface ExtractClipOptions {
+  sourceVideoUrl: string;
+  startTime: number;
+  endTime: number;
+  outputFormat?: string;
+  quality?: string;
+  includeFades?: boolean;
+  userId: string;
+  projectId: string;
+  clipId: string;
+}
+
+export interface ExtractClipResult {
+  clipUrl: string;
+  fileSize: number;
+  duration: number;
+  format: string;
+  processedAt: Date;
 }

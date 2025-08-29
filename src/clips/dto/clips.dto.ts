@@ -1,278 +1,476 @@
 import {
   IsString,
   IsOptional,
-  IsEnum,
   IsNumber,
   IsArray,
+  IsPositive,
   Min,
   Max,
-  IsObject,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { OpenAIModel, ClipStatus } from '../../schemas/clip.schema';
+import { ClipStatus } from '../../schemas/clip.schema';
 
-export class CreateClipProjectDto {
-  @ApiProperty({
-    description: 'Project name for the clip generation',
-    example: 'Hustle_Mouni_roy_LF',
-  })
-  @IsString()
-  title: string;
-
-  @ApiProperty({
-    description: 'Google Drive URL for the raw video file',
-    example: 'https://drive.google.com/file/d/1a2b3c4d5e6f7g8h9i0j/view',
-  })
-  @IsString()
-  rawFileUrl: string;
-
-  @ApiPropertyOptional({
-    description: 'OpenAI model to use for analysis and generation',
-    enum: OpenAIModel,
-    default: OpenAIModel.GPT_4_MINI,
-  })
-  @IsOptional()
-  @IsEnum(OpenAIModel)
-  selectedModel?: OpenAIModel;
-}
-
+// Create Clip Project DTO
 export class CreateClipProjectWithSrtDto {
   @ApiProperty({
-    description: 'Project name for the clip generation',
-    example: 'Hustle_Mouni_roy_LF',
-  })
-  title: string;
-
-  @ApiPropertyOptional({
-    description:
-      'Google Drive URL for the raw video file (use this OR upload local file OR AWS S3 file)',
-    example: 'https://drive.google.com/file/d/1a2b3c4d5e6f7g8h9i0j/view',
-  })
-  rawFileUrl?: string;
-
-  @ApiPropertyOptional({
-    description: 'AWS S3 file URL from chunked upload (required for video files)',
-    example:
-      'https://bucket.s3.amazonaws.com/uploads/user123/videos/file123.mp4',
-  })
-  awsFileUrl?: string;
-
-  @ApiPropertyOptional({
-    description: 'Upload session ID from chunked upload (if using AWS upload)',
-    example: 'session_abc123-def456',
-  })
-  uploadSessionId?: string;
-
-  @ApiPropertyOptional({
-    description: 'OpenAI model to use for analysis and generation',
-    enum: OpenAIModel,
-    default: OpenAIModel.GPT_4_MINI,
-  })
-  selectedModel?: string;
-}
-
-export class UploadSrtDto {
-  @ApiProperty({
-    description: 'Raw SRT file content',
-    example: `1
-00:00:00,000 --> 00:00:05,000
-Welcome to our podcast about AI in healthcare.
-
-2
-00:00:05,000 --> 00:00:10,000
-Today we'll discuss the latest developments...`,
-  })
-  @IsString()
-  srtContent: string;
-
-  @ApiProperty({
-    description: 'Original SRT filename',
-    example: 'episode_123_subtitles.srt',
-  })
-  @IsString()
-  srtFileName: string;
-}
-
-export class ThemeDto {
-  @ApiProperty({
-    description: 'Theme title',
-    example: 'AI Diagnostic Tools',
+    description: 'Project name',
+    example: 'My Podcast Episode',
   })
   @IsString()
   title: string;
 
   @ApiProperty({
-    description: 'Detailed description of the theme',
-    example:
-      'Discussion about AI-powered diagnostic tools and their impact on patient care',
+    description: 'Direct video file URL or AWS S3 URL',
+    example: 'https://bucket.s3.amazonaws.com/videos/my-video.mp4',
   })
   @IsString()
-  description: string;
-
-  @ApiProperty({
-    description: 'The angle or perspective of this theme',
-    example:
-      'Benefits and challenges of implementing AI diagnostics in hospitals',
-  })
-  @IsString()
-  angle: string;
-
-  @ApiProperty({
-    description: 'Confidence score for this theme (0-1)',
-    example: 0.87,
-    minimum: 0,
-    maximum: 1,
-  })
-  @IsNumber()
-  @Min(0)
-  @Max(1)
-  confidence: number;
-
-  @ApiPropertyOptional({
-    description: 'Key keywords associated with this theme',
-    example: ['AI', 'diagnostics', 'healthcare', 'patient care'],
-  })
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  keywords?: string[];
-
-  @ApiPropertyOptional({
-    description: 'Time ranges where this theme is discussed (in seconds)',
-    example: [120, 300, 450, 600],
-  })
-  @IsOptional()
-  @IsArray()
-  @IsNumber({}, { each: true })
-  timeRanges?: number[];
+  videoUrl: string;
 }
 
-export class SelectThemeAndGenerateDto {
-  @ApiProperty({
-    description: 'Selected theme for clip generation',
-    type: ThemeDto,
-  })
-  @ValidateNested()
-  @Type(() => ThemeDto)
-  @IsObject()
-  selectedTheme: ThemeDto;
-
-  @ApiProperty({
-    description: 'Number of clips to generate',
-    example: 5,
+// Query DTOs for pagination
+export class ClipQueryDto {
+  @ApiPropertyOptional({
+    description: 'Page number for pagination',
+    example: 1,
     minimum: 1,
-    maximum: 20,
   })
+  @IsOptional()
   @IsNumber()
   @Min(1)
-  @Max(20)
-  clipCount: number;
+  @Type(() => Number)
+  page?: number = 1;
+
+  @ApiPropertyOptional({
+    description: 'Number of items per page',
+    example: 10,
+    minimum: 1,
+    maximum: 50,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(50)
+  @Type(() => Number)
+  limit?: number = 10;
 }
 
-export class GeneratedClipDto {
+// Generated Clip DTOs
+export class ClipTimestamp {
   @ApiProperty({
-    description: 'Unique clip identifier',
-    example: 'clip_507f1f77bcf86cd799439011',
+    description: 'Clip identifier',
+    example: 'clip_001',
   })
   @IsString()
-  clipId: string;
-
-  @ApiProperty({
-    description: 'Clip title',
-    example: 'AI Revolutionizing Medical Diagnosis',
-  })
-  @IsString()
-  title: string;
-
-  @ApiProperty({
-    description: 'Clip description',
-    example: 'Learn how AI is transforming the way doctors diagnose diseases',
-  })
-  @IsString()
-  description: string;
+  id: string;
 
   @ApiProperty({
     description: 'Start time in seconds',
-    example: 120,
+    example: 30.5,
   })
   @IsNumber()
-  @Min(0)
   startTime: number;
 
   @ApiProperty({
     description: 'End time in seconds',
-    example: 180,
+    example: 90.5,
   })
   @IsNumber()
-  @Min(0)
+  endTime: number;
+
+  @ApiProperty({
+    description: 'Clip title/description',
+    example: 'Introduction segment',
+  })
+  @IsString()
+  title: string;
+
+  @ApiPropertyOptional({
+    description: 'Optional clip description',
+    example: 'Opening remarks and introduction',
+  })
+  @IsOptional()
+  @IsString()
+  description?: string;
+}
+
+export class GeneratedClipDto {
+  @ApiProperty({
+    description: 'Original user-provided clip ID',
+    example: 'ai-theme-1',
+  })
+  id: string;
+
+  @ApiProperty({
+    description: 'Database ID for clip modifications',
+    example: '60d5ecb74f3b2c001f5e4e8a',
+  })
+  dbId: string;
+
+  @ApiProperty({
+    description: 'Clip title/name',
+    example: 'Introduction segment',
+  })
+  title: string;
+
+  @ApiProperty({
+    description: 'Start time in seconds',
+    example: 30.5,
+  })
+  startTime: number;
+
+  @ApiProperty({
+    description: 'End time in seconds',
+    example: 90.5,
+  })
   endTime: number;
 
   @ApiProperty({
     description: 'Duration in seconds',
     example: 60,
   })
-  @IsNumber()
-  @Min(1)
   duration: number;
 
   @ApiProperty({
-    description: 'Transcript of the clip',
-    example:
-      'AI diagnostic tools are revolutionizing healthcare by providing faster and more accurate diagnoses...',
+    description: 'AWS S3 URL of the generated clip',
+    example: 'https://your-bucket.s3.amazonaws.com/clips/clip_001.mp4',
   })
-  @IsString()
-  transcript: string;
+  clipUrl: string;
+
+  @ApiProperty({
+    description: 'File size in bytes',
+    example: 15728640,
+  })
+  fileSize: number;
+
+  @ApiProperty({
+    description: 'Generation timestamp',
+  })
+  generatedAt: Date;
 
   @ApiPropertyOptional({
-    description: 'Suggested hashtags for social media',
-    example: ['#AI', '#Healthcare', '#MedTech', '#Innovation'],
+    description: 'Processing status',
+    example: 'completed',
+  })
+  processingStatus?: string;
+}
+
+// Update Clip Project DTO
+export class UpdateClipProjectDto {
+  @ApiPropertyOptional({
+    description: 'Updated project title',
+    example: 'Updated Clip Project',
+  })
+  @IsOptional()
+  @IsString()
+  title?: string;
+
+  @ApiPropertyOptional({
+    description: 'Project description',
+    example: 'Updated description of the clip project',
+  })
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @ApiPropertyOptional({
+    description: 'Generated clips with timestamps',
+    type: [GeneratedClipDto],
   })
   @IsOptional()
   @IsArray()
-  @IsString({ each: true })
-  hashtags?: string[];
+  @ValidateNested({ each: true })
+  @Type(() => GeneratedClipDto)
+  generatedClips?: GeneratedClipDto[];
+}
+
+// Generate Clips DTO
+export class GenerateClipsDto {
+  @ApiProperty({
+    description: 'Array of clip timestamps to generate',
+    type: [ClipTimestamp],
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ClipTimestamp)
+  timestamps: ClipTimestamp[];
 
   @ApiPropertyOptional({
-    description: 'URL to the generated video clip file',
-    example:
-      'http://localhost:3000/uploads/clips/project123/clip_1_AI_Revolutionizing_Medical_Diagnosis_uuid.mp4',
+    description: 'Output video quality',
+    example: 'high',
+    enum: ['low', 'medium', 'high'],
+    default: 'medium',
   })
   @IsOptional()
-  @IsString()
-  videoUrl?: string;
+  quality?: string;
 
   @ApiPropertyOptional({
-    description: 'File size of the generated video clip in bytes',
-    example: 15728640,
+    description: 'Video format for generated clips',
+    example: 'mp4',
+    enum: ['mp4', 'mov', 'avi'],
+    default: 'mp4',
+  })
+  @IsOptional()
+  format?: string;
+}
+
+// Regenerate Single Clip DTO
+export class RegenerateClipDto {
+  @ApiProperty({
+    description: 'Database ID of the clip to regenerate',
+    example: '60d5ecb74f3b2c001f5e4e8a',
+  })
+  @IsString()
+  dbId: string;
+
+  @ApiPropertyOptional({
+    description: 'Updated start time in seconds',
+    example: 35.0,
   })
   @IsOptional()
   @IsNumber()
-  fileSize?: number;
+  startTime?: number;
 
   @ApiPropertyOptional({
-    description: 'Processing status of the video clip',
-    example: 'completed',
-    enum: ['pending', 'processing', 'completed', 'failed'],
+    description: 'Updated end time in seconds',
+    example: 95.0,
+  })
+  @IsOptional()
+  @IsNumber()
+  endTime?: number;
+
+  @ApiPropertyOptional({
+    description: 'Updated clip title',
+    example: 'Updated Introduction segment',
   })
   @IsOptional()
   @IsString()
-  processingStatus?: string;
+  title?: string;
 
   @ApiPropertyOptional({
-    description: 'Error message if video processing failed',
-    example: 'FFmpeg processing error: Invalid timestamp',
+    description: 'Updated description',
+    example: 'Updated description',
   })
   @IsOptional()
   @IsString()
-  processingError?: string;
+  description?: string;
+}
 
-  @ApiPropertyOptional({
-    description: 'When this clip was generated',
+// S3 Upload DTOs
+export class SignedUrlRequestDto {
+  @ApiProperty({
+    description: 'Original file name',
+    example: 'my-video.mp4',
   })
-  @IsOptional()
-  generatedAt?: Date;
+  @IsString()
+  fileName: string;
+
+  @ApiProperty({
+    description: 'File MIME type',
+    example: 'video/mp4',
+  })
+  @IsString()
+  fileType: string;
+
+  @ApiProperty({
+    description: 'File size in bytes',
+    example: 52428800,
+  })
+  @IsNumber()
+  fileSize: number;
+}
+
+export class SignedUrlResponseDto {
+  @ApiProperty({
+    description: 'Pre-signed URL for uploading to S3',
+    example:
+      'https://bucket.s3.amazonaws.com/videos/uuid.mp4?X-Amz-Algorithm=...',
+  })
+  uploadUrl: string;
+
+  @ApiProperty({
+    description: 'Final S3 URL where the file will be accessible',
+    example: 'https://bucket.s3.amazonaws.com/videos/uuid.mp4',
+  })
+  fileUrl: string;
+
+  @ApiProperty({
+    description: 'Generated unique file name',
+    example: 'videos/550e8400-e29b-41d4-a716-446655440000.mp4',
+  })
+  fileName: string;
+
+  @ApiProperty({
+    description: 'URL expiration time in seconds',
+    example: 3600,
+  })
+  expiresIn: number;
+}
+
+// Multipart Upload DTOs
+export class InitiateMultipartUploadDto {
+  @ApiProperty({
+    description: 'Original file name',
+    example: 'large-video.mp4',
+  })
+  @IsString()
+  fileName: string;
+
+  @ApiProperty({
+    description: 'File MIME type',
+    example: 'video/mp4',
+  })
+  @IsString()
+  fileType: string;
+
+  @ApiProperty({
+    description: 'File size in bytes',
+    example: 524288000,
+  })
+  @IsNumber()
+  fileSize: number;
+}
+
+export class InitiateMultipartUploadResponseDto {
+  @ApiProperty({
+    description: 'Upload ID for the multipart upload session',
+    example: '2~VmxqYWJRNHlzaTV4MGZSczNvZGJPSgabcd123',
+  })
+  uploadId: string;
+
+  @ApiProperty({
+    description: 'S3 file key for the upload',
+    example: 'videos/550e8400-e29b-41d4-a716-446655440000.mp4',
+  })
+  fileKey: string;
+
+  @ApiProperty({
+    description: 'Final S3 URL where the file will be accessible',
+    example:
+      'https://bucket.s3.amazonaws.com/videos/550e8400-e29b-41d4-a716-446655440000.mp4',
+  })
+  fileUrl: string;
+
+  @ApiProperty({
+    description: 'Size of each chunk in bytes',
+    example: 10485760,
+  })
+  chunkSize: number;
+
+  @ApiProperty({
+    description: 'Total number of chunks',
+    example: 50,
+  })
+  totalChunks: number;
+
+  @ApiProperty({
+    description: 'URL expiration time in seconds',
+    example: 3600,
+  })
+  expiresIn: number;
+}
+
+export class ChunkUploadUrlRequestDto {
+  @ApiProperty({
+    description: 'Upload ID from initiate multipart upload',
+    example: '2~VmxqYWJRNHlzaTV4MGZSczNvZGJPSgabcd123',
+  })
+  @IsString()
+  uploadId: string;
+
+  @ApiProperty({
+    description: 'S3 file key',
+    example: 'videos/550e8400-e29b-41d4-a716-446655440000.mp4',
+  })
+  @IsString()
+  fileKey: string;
+
+  @ApiProperty({
+    description: 'Part number for the chunk (1-based)',
+    example: 1,
+  })
+  @IsNumber()
+  @IsPositive()
+  partNumber: number;
+}
+
+export class ChunkUploadUrlResponseDto {
+  @ApiProperty({
+    description: 'Pre-signed URL for uploading this chunk',
+    example:
+      'https://bucket.s3.amazonaws.com/videos/uuid.mp4?partNumber=1&uploadId=...',
+  })
+  uploadUrl: string;
+
+  @ApiProperty({
+    description: 'Part number for this chunk',
+    example: 1,
+  })
+  partNumber: number;
+
+  @ApiProperty({
+    description: 'URL expiration time in seconds',
+    example: 3600,
+  })
+  expiresIn: number;
+}
+
+export class UploadPartDto {
+  @ApiProperty({
+    description: 'Part number',
+    example: 1,
+  })
+  @IsNumber()
+  @IsPositive()
+  partNumber: number;
+
+  @ApiProperty({
+    description: 'ETag returned from S3 after uploading the chunk',
+    example: '"e1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6"',
+  })
+  @IsString()
+  etag: string;
+}
+
+export class CompleteMultipartUploadDto {
+  @ApiProperty({
+    description: 'Upload ID from initiate multipart upload',
+    example: '2~VmxqYWJRNHlzaTV4MGZSczNvZGJPSgabcd123',
+  })
+  @IsString()
+  uploadId: string;
+
+  @ApiProperty({
+    description: 'S3 file key',
+    example: 'videos/550e8400-e29b-41d4-a716-446655440000.mp4',
+  })
+  @IsString()
+  fileKey: string;
+
+  @ApiProperty({
+    description: 'Array of uploaded parts with their ETags',
+    type: [UploadPartDto],
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => UploadPartDto)
+  parts: UploadPartDto[];
+}
+
+export class CompleteMultipartUploadResponseDto {
+  @ApiProperty({
+    description: 'Final S3 URL where the file is accessible',
+    example:
+      'https://bucket.s3.amazonaws.com/videos/550e8400-e29b-41d4-a716-446655440000.mp4',
+  })
+  fileUrl: string;
+
+  @ApiProperty({
+    description: 'S3 file key',
+    example: 'videos/550e8400-e29b-41d4-a716-446655440000.mp4',
+  })
+  fileKey: string;
 }
 
 // Response DTOs
@@ -285,13 +483,13 @@ export class ClipProjectResponseDto {
 
   @ApiProperty({
     description: 'Project title',
-    example: 'Podcast Episode 123 - AI in Healthcare',
+    example: 'Podcast Episode 123',
   })
   title: string;
 
   @ApiPropertyOptional({
     description: 'Project description',
-    example: 'Discussion about the future of AI in healthcare industry',
+    example: 'Discussion about technology',
   })
   description?: string;
 
@@ -303,17 +501,10 @@ export class ClipProjectResponseDto {
   status: ClipStatus;
 
   @ApiProperty({
-    description: 'Selected OpenAI model',
-    enum: OpenAIModel,
-    example: OpenAIModel.GPT_4_MINI,
-  })
-  selectedModel: OpenAIModel;
-
-  @ApiProperty({
     description: 'Raw video file information',
     example: {
-      url: 'https://drive.google.com/file/d/1a2b3c4d5e6f7g8h9i0j/view',
-      fileName: 'podcast_episode_123.mp4',
+      url: 'https://bucket.s3.amazonaws.com/videos/podcast_episode.mp4',
+      fileName: 'podcast_episode.mp4',
       fileSize: 1073741824,
     },
   })
@@ -326,8 +517,8 @@ export class ClipProjectResponseDto {
   @ApiPropertyOptional({
     description: 'SRT file information (if uploaded)',
     example: {
-      fileName: 'episode_123_subtitles.srt',
-      url: '/uploads/srt/episode_123_subtitles.srt',
+      fileName: 'episode_subtitles.srt',
+      url: '/uploads/srt/episode_subtitles.srt',
     },
   })
   srtFile?: {
@@ -341,12 +532,6 @@ export class ClipProjectResponseDto {
   })
   totalDuration?: number;
 
-  @ApiPropertyOptional({
-    description: 'Error message if processing failed',
-    example: 'Failed to analyze SRT content: Invalid format',
-  })
-  errorMessage?: string;
-
   @ApiProperty({
     description: 'Project creation timestamp',
   })
@@ -356,100 +541,6 @@ export class ClipProjectResponseDto {
     description: 'Project last update timestamp',
   })
   updatedAt: Date;
-}
-
-export class ThemeAnalysisResponseDto {
-  @ApiProperty({
-    description: 'Clip project ID',
-    example: '507f1f77bcf86cd799439011',
-  })
-  id: string;
-
-  @ApiProperty({
-    description: 'Current status',
-    enum: ClipStatus,
-    example: ClipStatus.READY_FOR_GENERATION,
-  })
-  status: ClipStatus;
-
-  @ApiProperty({
-    description: 'Analyzed themes from the video content',
-    type: [ThemeDto],
-  })
-  analyzedThemes: ThemeDto[];
-
-  @ApiProperty({
-    description: 'Total video duration in seconds',
-    example: 3600,
-  })
-  totalDuration: number;
-
-  @ApiProperty({
-    description: 'Total tokens used for analysis',
-    example: 2500,
-  })
-  totalTokensUsed: number;
-
-  @ApiProperty({
-    description: 'Estimated cost for the analysis in USD',
-    example: 0.15,
-  })
-  estimatedCost: number;
-
-  @ApiPropertyOptional({
-    description: 'When analysis was completed',
-  })
-  analysisCompletedAt?: Date;
-}
-
-export class ClipGenerationResponseDto {
-  @ApiProperty({
-    description: 'Clip project ID',
-    example: '507f1f77bcf86cd799439011',
-  })
-  id: string;
-
-  @ApiProperty({
-    description: 'Current status',
-    enum: ClipStatus,
-    example: ClipStatus.COMPLETED,
-  })
-  status: ClipStatus;
-
-  @ApiProperty({
-    description: 'Selected theme used for generation',
-    type: ThemeDto,
-  })
-  selectedTheme: ThemeDto;
-
-  @ApiProperty({
-    description: 'Number of clips requested',
-    example: 5,
-  })
-  requestedClipCount: number;
-
-  @ApiProperty({
-    description: 'Generated clips',
-    type: [GeneratedClipDto],
-  })
-  generatedClips: GeneratedClipDto[];
-
-  @ApiProperty({
-    description: 'Total tokens used for generation',
-    example: 5000,
-  })
-  totalTokensUsed: number;
-
-  @ApiProperty({
-    description: 'Estimated cost for the generation in USD',
-    example: 0.35,
-  })
-  estimatedCost: number;
-
-  @ApiPropertyOptional({
-    description: 'When generation was completed',
-  })
-  generationCompletedAt?: Date;
 }
 
 export class ClipListResponseDto {
@@ -484,449 +575,34 @@ export class ClipListResponseDto {
   totalPages: number;
 }
 
-export class MessageResponseDto {
+export class ClipGenerationResponseDto {
   @ApiProperty({
-    description: 'Response message',
-    example: 'Operation completed successfully',
+    description: 'Clip project ID',
+    example: '507f1f77bcf86cd799439011',
   })
-  message: string;
-}
+  id: string;
 
-// Query DTOs for filtering and pagination
-export class ClipQueryDto {
-  @ApiPropertyOptional({
-    description: 'Page number for pagination',
-    example: 1,
-    minimum: 1,
-  })
-  @IsOptional()
-  @IsNumber()
-  @Min(1)
-  @Type(() => Number)
-  page?: number = 1;
-
-  @ApiPropertyOptional({
-    description: 'Number of items per page',
-    example: 10,
-    minimum: 1,
-    maximum: 50,
-  })
-  @IsOptional()
-  @IsNumber()
-  @Min(1)
-  @Max(50)
-  @Type(() => Number)
-  limit?: number = 10;
-
-  @ApiPropertyOptional({
-    description: 'Filter by status',
+  @ApiProperty({
+    description: 'Current status',
     enum: ClipStatus,
+    example: ClipStatus.COMPLETED,
   })
-  @IsOptional()
-  @IsEnum(ClipStatus)
-  status?: ClipStatus;
+  status: ClipStatus;
+
+  @ApiProperty({
+    description: 'Number of clips requested',
+    example: 5,
+  })
+  requestedClipCount: number;
+
+  @ApiProperty({
+    description: 'Generated clips',
+    type: [GeneratedClipDto],
+  })
+  generatedClips: GeneratedClipDto[];
 
   @ApiPropertyOptional({
-    description: 'Search in title and description',
-    example: 'AI healthcare',
+    description: 'When generation was completed',
   })
-  @IsOptional()
-  @IsString()
-  search?: string;
-}
-
-// Signed URL Upload DTOs
-export class UploadToSignedUrlRequestDto {
-  @ApiProperty({
-    description: 'Original filename with extension',
-    example: 'my_video.mp4',
-  })
-  @IsString()
-  fileName: string;
-
-  @ApiProperty({
-    description: 'File size in bytes',
-    example: 52428800,
-    minimum: 1,
-  })
-  @IsNumber()
-  @Min(1)
-  fileSize: number;
-
-  @ApiProperty({
-    description: 'MIME type of the file',
-    example: 'video/mp4',
-  })
-  @IsString()
-  mimeType: string;
-
-  @ApiPropertyOptional({
-    description: 'File type for organizing uploads',
-    example: 'video',
-    enum: ['video', 'audio', 'document', 'image', 'other'],
-    default: 'other',
-  })
-  @IsOptional()
-  @IsEnum(['video', 'audio', 'document', 'image', 'other'])
-  fileType?: 'video' | 'audio' | 'document' | 'image' | 'other';
-
-  @ApiPropertyOptional({
-    description: 'Optional metadata for the file',
-    example: { description: 'Marketing video for Q1 campaign' },
-  })
-  @IsOptional()
-  @IsObject()
-  metadata?: Record<string, any>;
-
-  @ApiPropertyOptional({
-    description:
-      'Enable chunked upload for large files. If not specified, will auto-decide based on file size.',
-    example: true,
-    default: false,
-  })
-  @IsOptional()
-  enableChunkedUpload?: boolean;
-
-  @ApiPropertyOptional({
-    description:
-      'Chunk size in bytes for chunked upload (5MB to 100MB recommended)',
-    example: 5242880, // 5MB
-    minimum: 1024 * 1024, // 1MB minimum
-    maximum: 100 * 1024 * 1024, // 100MB maximum
-  })
-  @IsOptional()
-  @IsNumber()
-  @Min(1024 * 1024)
-  @Max(100 * 1024 * 1024)
-  chunkSize?: number;
-}
-
-export class ChunkUploadInfo {
-  @ApiProperty({
-    description: 'Chunk number (1-based)',
-    example: 1,
-  })
-  chunkNumber: number;
-
-  @ApiProperty({
-    description: 'Pre-signed URL for uploading this chunk',
-    example:
-      'https://s3.amazonaws.com/my-bucket/uploads/user123/abc-123-def.mp4?partNumber=1&uploadId=...',
-  })
-  signedUrl: string;
-
-  @ApiProperty({
-    description: 'Expiration time for this chunk URL (in seconds)',
-    example: 3600,
-  })
-  expiresIn: number;
-
-  @ApiProperty({
-    description: 'Expected size of this chunk in bytes',
-    example: 5242880, // 5MB
-  })
-  expectedSize: number;
-}
-
-export class SignedUrlUploadResponseDto {
-  @ApiProperty({
-    description: 'Indicates if this is a chunked upload',
-    example: false,
-  })
-  isChunkedUpload: boolean;
-
-  @ApiPropertyOptional({
-    description: 'Pre-signed URL for file upload (single upload only)',
-    example:
-      'https://s3.amazonaws.com/my-bucket/uploads/user123/abc-123-def.mp4?X-Amz-Algorithm=...',
-  })
-  signedUrl?: string;
-
-  @ApiProperty({
-    description: 'Unique file identifier for tracking',
-    example: 'user123_abc-123-def_my_video.mp4',
-  })
-  fileId: string;
-
-  @ApiProperty({
-    description: 'Final URL where file will be accessible after upload',
-    example:
-      'https://s3.amazonaws.com/my-bucket/uploads/user123/abc-123-def.mp4',
-  })
-  fileUrl: string;
-
-  @ApiProperty({
-    description: 'Pre-signed URL for reading/viewing the uploaded file',
-    example:
-      'https://s3.amazonaws.com/my-bucket/uploads/user123/abc-123-def.mp4?X-Amz-Algorithm=...',
-  })
-  readUrl: string;
-
-  @ApiProperty({
-    description: 'Expiration time for the signed URL (in seconds)',
-    example: 3600,
-  })
-  expiresIn: number;
-
-  @ApiProperty({
-    description: 'Upload method to use (typically PUT for direct upload)',
-    example: 'PUT',
-  })
-  method: string;
-
-  @ApiPropertyOptional({
-    description: 'Required headers for the upload request',
-    example: { 'Content-Type': 'video/mp4' },
-  })
-  headers?: Record<string, string>;
-
-  @ApiProperty({
-    description: 'Maximum file size allowed for this upload',
-    example: 104857600,
-  })
-  maxFileSize: number;
-
-  @ApiProperty({
-    description: 'Timestamp when the signed URL was created',
-  })
-  createdAt: Date;
-
-  // Chunked upload specific fields
-  @ApiPropertyOptional({
-    description: 'Upload session ID for chunked uploads',
-    example: 'session_abc123',
-  })
-  sessionId?: string;
-
-  @ApiPropertyOptional({
-    description: 'S3 multipart upload ID for chunked uploads',
-    example: 'upload_xyz789',
-  })
-  uploadId?: string;
-
-  @ApiPropertyOptional({
-    description: 'Total number of chunks',
-    example: 10,
-  })
-  totalChunks?: number;
-
-  @ApiPropertyOptional({
-    description: 'Size of each chunk in bytes',
-    example: 5242880,
-  })
-  chunkSize?: number;
-
-  @ApiPropertyOptional({
-    description: 'Array of signed URLs for each chunk',
-    type: [ChunkUploadInfo],
-  })
-  chunkUrls?: ChunkUploadInfo[];
-}
-
-// Chunked upload management DTOs
-export class UpdateChunkStatusDto {
-  @ApiProperty({
-    description: 'Upload session ID',
-    example: 'session_abc123',
-  })
-  @IsString()
-  sessionId: string;
-
-  @ApiProperty({
-    description: 'Chunk number (1-based)',
-    example: 1,
-    minimum: 1,
-  })
-  @IsNumber()
-  @Min(1)
-  chunkNumber: number;
-
-  @ApiProperty({
-    description: 'ETag returned by S3 after chunk upload',
-    example: '"d41d8cd98f00b204e9800998ecf8427e"',
-  })
-  @IsString()
-  eTag: string;
-
-  @ApiProperty({
-    description: 'Actual size of uploaded chunk in bytes',
-    example: 5242880,
-    minimum: 1,
-  })
-  @IsNumber()
-  @Min(1)
-  size: number;
-}
-
-export class CompleteChunkedUploadDto {
-  @ApiProperty({
-    description: 'Upload session ID',
-    example: 'session_abc123',
-  })
-  @IsString()
-  sessionId: string;
-}
-
-export class AbortChunkedUploadDto {
-  @ApiProperty({
-    description: 'Upload session ID',
-    example: 'session_abc123',
-  })
-  @IsString()
-  sessionId: string;
-
-  @ApiPropertyOptional({
-    description: 'Reason for aborting the upload',
-    example: 'User cancelled upload',
-  })
-  @IsOptional()
-  @IsString()
-  reason?: string;
-}
-
-export class ChunkStatusInfo {
-  @ApiProperty({
-    description: 'Chunk number',
-    example: 1,
-  })
-  chunkNumber: number;
-
-  @ApiProperty({
-    description: 'Whether this chunk has been uploaded',
-    example: true,
-  })
-  isCompleted: boolean;
-
-  @ApiProperty({
-    description: 'ETag of uploaded chunk',
-    example: '"d41d8cd98f00b204e9800998ecf8427e"',
-  })
-  eTag: string;
-
-  @ApiProperty({
-    description: 'Size of uploaded chunk in bytes',
-    example: 5242880,
-  })
-  size: number;
-
-  @ApiPropertyOptional({
-    description: 'When this chunk was uploaded',
-  })
-  uploadedAt?: Date;
-}
-
-export class UploadProgressResponseDto {
-  @ApiProperty({
-    description: 'Upload session ID',
-    example: 'session_abc123',
-  })
-  sessionId: string;
-
-  @ApiProperty({
-    description: 'Current upload status',
-    example: 'uploading',
-    enum: ['initializing', 'uploading', 'completed', 'failed', 'aborted'],
-  })
-  status: string;
-
-  @ApiProperty({
-    description: 'Total number of chunks',
-    example: 10,
-  })
-  totalChunks: number;
-
-  @ApiProperty({
-    description: 'Number of completed chunks',
-    example: 7,
-  })
-  completedChunks: number;
-
-  @ApiProperty({
-    description: 'Upload progress percentage (0-100)',
-    example: 70,
-  })
-  progressPercentage: number;
-
-  @ApiProperty({
-    description: 'Total file size in bytes',
-    example: 52428800,
-  })
-  totalFileSize: number;
-
-  @ApiProperty({
-    description: 'Uploaded size in bytes',
-    example: 36700160,
-  })
-  uploadedSize: number;
-
-  @ApiProperty({
-    description: 'Status of each chunk',
-    type: [ChunkStatusInfo],
-  })
-  chunks: ChunkStatusInfo[];
-
-  @ApiPropertyOptional({
-    description: 'Final file URL (available when completed)',
-    example:
-      'https://s3.amazonaws.com/my-bucket/uploads/user123/abc-123-def.mp4',
-  })
-  finalFileUrl?: string;
-
-  @ApiPropertyOptional({
-    description: 'Error message if upload failed',
-  })
-  errorMessage?: string;
-
-  @ApiProperty({
-    description: 'Session creation timestamp',
-  })
-  createdAt: Date;
-
-  @ApiPropertyOptional({
-    description: 'Upload completion timestamp',
-  })
-  completedAt?: Date;
-
-  @ApiProperty({
-    description: 'Session expiration timestamp',
-  })
-  expiresAt: Date;
-}
-
-export class UploadStatusDto {
-  @ApiProperty({
-    description: 'File identifier',
-    example: 'user123_abc-123-def_my_video.mp4',
-  })
-  fileId: string;
-
-  @ApiProperty({
-    description: 'Upload status',
-    example: 'completed',
-    enum: ['pending', 'uploading', 'completed', 'failed'],
-  })
-  status: 'pending' | 'uploading' | 'completed' | 'failed';
-
-  @ApiProperty({
-    description: 'Final file URL after successful upload',
-    example:
-      'https://s3.amazonaws.com/my-bucket/uploads/user123/abc-123-def.mp4',
-  })
-  fileUrl: string;
-
-  @ApiPropertyOptional({
-    description: 'Error message if upload failed',
-  })
-  errorMessage?: string;
-
-  @ApiProperty({
-    description: 'File size in bytes',
-    example: 52428800,
-  })
-  fileSize: number;
-
-  @ApiProperty({
-    description: 'Upload completion timestamp',
-  })
-  uploadedAt: Date;
+  generationCompletedAt?: Date;
 }

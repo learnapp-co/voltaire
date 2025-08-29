@@ -1,0 +1,63 @@
+[
+  {
+    "title": "AI and Machine Learning Fundamentals",
+    "description": "Introduction to artificial intelligence and machine learning technologies",
+    "angle": "Educational overview of core AI concepts",
+    "confidence": 0.95,
+    "keywords": [
+      "AI",
+      "machine learning",
+      "neural networks"
+    ],
+    "timeRanges": [
+      0,
+      30
+    ]
+  },
+  {
+    "title": "Transformer Models and NLP",
+    "description": "Deep dive into transformer architecture and natural language processing",
+    "angle": "Technical explanation of breakthrough AI models",
+    "confidence": 0.88,
+    "keywords": [
+      "transformer",
+      "NLP",
+      "GPT",
+      "BERT"
+    ],
+    "timeRanges": [
+      30,
+      60
+    ]
+  },
+  {
+    "title": "AI in Software Development",
+    "description": "Practical applications of AI for developers and engineers",
+    "angle": "Professional development and integration strategies",
+    "confidence": 0.82,
+    "keywords": [
+      "software development",
+      "integration",
+      "workflows"
+    ],
+    "timeRanges": [
+      60,
+      90
+    ]
+  },
+  {
+    "title": "Ethical AI and Future Considerations",
+    "description": "Discussion of AI ethics and societal implications",
+    "angle": "Responsible AI development and deployment",
+    "confidence": 0.79,
+    "keywords": [
+      "ethics",
+      "society",
+      "responsible AI"
+    ],
+    "timeRanges": [
+      90,
+      100
+    ]
+  }
+]

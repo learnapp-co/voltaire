@@ -1,0 +1,29 @@
+{
+  "name": "clipflow-test-suite",
+  "version": "1.0.0",
+  "description": "Test suite for ClipFlow OpenAI + FFmpeg clip generation",
+  "main": "test-openai-ffmpeg.js",
+  "scripts": {
+    "test": "node test-openai-ffmpeg.js",
+    "test:cleanup": "node test-openai-ffmpeg.js --cleanup",
+    "test:bash": "./test-openai-ffmpeg-generation.sh",
+    "setup": "npm install"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "form-data": "^4.0.0"
+  },
+  "devDependencies": {},
+  "keywords": [
+    "clipflow",
+    "openai",
+    "ffmpeg",
+    "video",
+    "testing"
+  ],
+  "author": "ClipFlow Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

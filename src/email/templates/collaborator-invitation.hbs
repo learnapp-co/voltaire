@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Collaboration Invitation - ClipFlow</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            background-color: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2563eb;
+            margin-bottom: 10px;
+        }
+
+        .title {
+            color: #1f2937;
+            font-size: 24px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .content {
+            color: #4b5563;
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+
+        .project-info {
+            background-color: #f8fafc;
+            border-left: 4px solid #2563eb;
+            padding: 15px;
+            margin: 20px 0;
+        }
+
+        .project-title {
+            font-weight: bold;
+            color: #1f2937;
+            font-size: 18px;
+        }
+
+        .message-box {
+            background-color: #fef3c7;
+            border: 1px solid #f59e0b;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+
+        .message-label {
+            font-weight: bold;
+            color: #92400e;
+            margin-bottom: 5px;
+        }
+
+        .message-content {
+            color: #78350f;
+            font-style: italic;
+        }
+
+        .cta-button {
+            display: inline-block;
+            background-color: #2563eb;
+            color: white;
+            padding: 12px 30px;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: bold;
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .cta-container {
+            text-align: center;
+            margin: 30px 0;
+        }
+
+        .signup-note {
+            background-color: #ecfdf5;
+            border: 1px solid #10b981;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+
+        .signup-note-title {
+            font-weight: bold;
+            color: #047857;
+            margin-bottom: 5px;
+        }
+
+        .signup-note-content {
+            color: #065f46;
+        }
+
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e5e7eb;
+            color: #6b7280;
+            font-size: 14px;
+            text-align: center;
+        }
+
+        .alternative-link {
+            background-color: #f9fafb;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 20px 0;
+            font-size: 14px;
+            color: #6b7280;
+        }
+
+        .features {
+            margin: 20px 0;
+        }
+
+        .feature-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .feature-list li {
+            padding: 8px 0;
+            color: #4b5563;
+        }
+
+        .feature-list li:before {
+            content: "✓";
+            color: #10b981;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">ClipFlow</div>
+        </div>
+
+        <h1 class="title">🎬 You're Invited to Collaborate!</h1>
+
+        <div class="content">
+            <p>Hi there!</p>
+
+            <p><strong>{{inviterFullName}}</strong> has invited you to collaborate on their clip project:</p>
+        </div>
+
+        <div class="project-info">
+            <div class="project-title">{{projectTitle}}</div>
+        </div>
+
+        {{#if message}}
+        <div class="message-box">
+            <div class="message-label">Personal Message:</div>
+            <div class="message-content">"{{message}}"</div>
+        </div>
+        {{/if}}
+
+        {{#if needsSignup}}
+        <div class="signup-note">
+            <div class="signup-note-title">🎉 Welcome to ClipFlow!</div>
+            <div class="signup-note-content">
+                It looks like you're new to ClipFlow. Don't worry - clicking the button below will set up your account
+                and automatically accept the collaboration invitation.
+            </div>
+        </div>
+        {{/if}}
+
+        <div class="features">
+            <p><strong>As a collaborator, you'll be able to:</strong></p>
+            <ul class="feature-list">
+                <li>View and vote on generated clips</li>
+                <li>Rate clips from 1-5 stars</li>
+                <li>Vote on whether clips should be posted</li>
+                <li>Regenerate clips with different parameters</li>
+                <li>Collaborate with the team on clip decisions</li>
+            </ul>
+        </div>
+
+        <div class="cta-container">
+            <a href="{{invitationUrl}}" class="cta-button">
+                {{#if needsSignup}}
+                Join ClipFlow & Accept Invitation
+                {{else}}
+                Accept Collaboration Invitation
+                {{/if}}
+            </a>
+        </div>
+
+        <div class="alternative-link">
+            <strong>Can't click the button?</strong> Copy and paste this link into your browser:<br>
+            <a href="{{invitationUrl}}">{{invitationUrl}}</a>
+        </div>
+
+        <div class="content">
+            <p>This invitation will expire in 7 days. If you have any questions, feel free to reach out to
+                {{inviterFullName}} directly.</p>
+
+            <p>We're excited to have you join the ClipFlow community!</p>
+        </div>
+
+        <div class="footer">
+            <p>
+                This invitation was sent by {{inviterFullName}} through ClipFlow.<br>
+                If you didn't expect this invitation, you can safely ignore this email.
+            </p>
+            <p>
+                <a href="{{frontendUrl}}">Visit ClipFlow</a> |
+                <a href="{{frontendUrl}}/help">Get Help</a>
+            </p>
+        </div>
+    </div>
+</body>
+
+</html>

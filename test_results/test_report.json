@@ -1,0 +1,76 @@
+{
+  "testSummary": {
+    "duration": "49.84 seconds",
+    "totalTests": 7,
+    "passedTests": 6,
+    "failedTests": 0,
+    "projectId": "68ad5958cacbcc3e7d5f9c78"
+  },
+  "testResults": {
+    "tokenValidation": true,
+    "fileCreation": true,
+    "videoUpload": true,
+    "projectCreation": true,
+    "openaiAnalysis": true,
+    "clipGeneration": true,
+    "verification": false,
+    "startTime": 1756191049469,
+    "endTime": 1756191099310,
+    "errors": [],
+    "generatedClips": [
+      {
+        "id": "ai-theme-1",
+        "dbId": "68ad5959cacbcc3e7d5f9c7f",
+        "title": "AI and Machine Learning Fundamentals",
+        "startTime": 0,
+        "endTime": 30,
+        "duration": 30,
+        "clipUrl": "https://voltaire-clipflow.s3.amazonaws.com/clips/68ad5958cacbcc3e7d5f9c78/68ad5959cacbcc3e7d5f9c7f.mp4",
+        "fileSize": 3363688,
+        "generatedAt": "2025-08-26T06:51:10.714Z",
+        "processingStatus": "completed"
+      },
+      {
+        "id": "ai-theme-2",
+        "dbId": "68ad595ecacbcc3e7d5f9c82",
+        "title": "Transformer Models and NLP",
+        "startTime": 30,
+        "endTime": 60,
+        "duration": 30,
+        "clipUrl": "https://voltaire-clipflow.s3.amazonaws.com/clips/68ad5958cacbcc3e7d5f9c78/68ad595ecacbcc3e7d5f9c82.mp4",
+        "fileSize": 3812979,
+        "generatedAt": "2025-08-26T06:51:21.313Z",
+        "processingStatus": "completed"
+      },
+      {
+        "id": "ai-theme-3",
+        "dbId": "68ad5969cacbcc3e7d5f9c85",
+        "title": "AI in Software Development",
+        "startTime": 60,
+        "endTime": 90,
+        "duration": 30,
+        "clipUrl": "https://voltaire-clipflow.s3.amazonaws.com/clips/68ad5958cacbcc3e7d5f9c78/68ad5969cacbcc3e7d5f9c85.mp4",
+        "fileSize": 3951998,
+        "generatedAt": "2025-08-26T06:51:32.985Z",
+        "processingStatus": "completed"
+      },
+      {
+        "id": "ai-theme-4",
+        "dbId": "68ad5975cacbcc3e7d5f9c88",
+        "title": "Ethical AI and Future Considerations",
+        "startTime": 90,
+        "endTime": 100,
+        "duration": 10,
+        "clipUrl": "https://voltaire-clipflow.s3.amazonaws.com/clips/68ad5958cacbcc3e7d5f9c78/68ad5975cacbcc3e7d5f9c88.mp4",
+        "fileSize": 1095169,
+        "generatedAt": "2025-08-26T06:51:38.055Z",
+        "processingStatus": "completed"
+      }
+    ]
+  },
+  "performance": {
+    "averageClipGeneration": "12.46s per clip",
+    "totalClipsGenerated": 4,
+    "totalClipSize": 12223834
+  }
+}

@@ -1,0 +1,31 @@
+# ClipFlow Environment Variables Template
+# Copy these and set your actual values
+
+# === REQUIRED (App won't start without these) ===
+MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/clipflow
+JWT_SECRET=your-super-secure-32-character-secret-key-change-this
+
+# === PRODUCTION RECOMMENDED ===
+# Standard AWS Configuration
+AWS_ACCESS_KEY_ID=your-aws-access-key-id
+AWS_SECRET_ACCESS_KEY=your-aws-secret-access-key
+AWS_REGION=us-east-1
+AWS_S3_BUCKET=your-s3-bucket-name
+
+# Sub-Account Configuration (Optional - for AWS Organizations)
+# If your S3 bucket is in a sub-account, uncomment and configure:
+# AWS_SUB_ACCOUNT_ROLE_ARN=arn:aws:iam::SUB_ACCOUNT_ID:role/CrossAccountS3Role
+
+OPENAI_API_KEY=sk-your-openai-api-key
+
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_USER=your-email@gmail.com
+EMAIL_PASSWORD=your-gmail-app-password
+EMAIL_FROM=noreply@yourapp.com
+FRONTEND_URL=https://your-app.railway.app
+
+# === OPTIONAL ===
+NODE_ENV=production
+ACCESS_TOKEN_EXPIRE_MINUTES=525600
+RESET_TOKEN_EXPIRE_MINUTES=15

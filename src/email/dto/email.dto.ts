@@ -114,6 +114,58 @@ export class PasswordResetEmailDto {
   resetUrl?: string;
 }
 
+export class CollaboratorInvitationEmailDto {
+  @ApiProperty({
+    description: 'Invitee email address',
+    example: 'collaborator@example.com',
+  })
+  @IsEmail()
+  email: string;
+
+  @ApiProperty({
+    description: 'Inviter first name',
+    example: 'John',
+  })
+  @IsString()
+  inviterFirstName: string;
+
+  @ApiProperty({
+    description: 'Inviter last name',
+    example: 'Doe',
+  })
+  @IsString()
+  inviterLastName: string;
+
+  @ApiProperty({
+    description: 'Clip project title',
+    example: 'My Podcast Episode',
+  })
+  @IsString()
+  projectTitle: string;
+
+  @ApiProperty({
+    description: 'Invitation token for verification',
+    example: 'inv_abc123def456',
+  })
+  @IsString()
+  invitationToken: string;
+
+  @ApiPropertyOptional({
+    description: 'Optional message from inviter',
+    example: 'Would you like to collaborate on this clip project?',
+  })
+  @IsOptional()
+  @IsString()
+  message?: string;
+
+  @ApiPropertyOptional({
+    description: 'Whether the invitee needs to sign up first',
+    example: true,
+  })
+  @IsOptional()
+  needsSignup?: boolean;
+}
+
 export class EmailResponseDto {
   @ApiProperty({
     description: 'Whether the email was sent successfully',

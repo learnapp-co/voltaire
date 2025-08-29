@@ -40,6 +40,63 @@ export class Theme {
 }
 
 @Schema()
+export class VoteDetail {
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  userId: Types.ObjectId;
+
+  @Prop({ required: true })
+  votedAt: Date;
+}
+
+@Schema()
+export class PostingVotes {
+  @Prop({ type: [VoteDetail], default: [] })
+  yes: VoteDetail[];
+
+  @Prop({ type: [VoteDetail], default: [] })
+  no: VoteDetail[];
+}
+
+@Schema()
+export class RatingVotes {
+  @Prop({ type: [VoteDetail], default: [] })
+  rating1: VoteDetail[];
+
+  @Prop({ type: [VoteDetail], default: [] })
+  rating2: VoteDetail[];
+
+  @Prop({ type: [VoteDetail], default: [] })
+  rating3: VoteDetail[];
+
+  @Prop({ type: [VoteDetail], default: [] })
+  rating4: VoteDetail[];
+
+  @Prop({ type: [VoteDetail], default: [] })
+  rating5: VoteDetail[];
+}
+
+@Schema()
+export class ClipVoting {
+  @Prop({ type: PostingVotes, default: () => ({}) })
+  shouldThisBePosted: PostingVotes;
+
+  @Prop({ type: RatingVotes, default: () => ({}) })
+  clipRating: RatingVotes;
+}
+
+@Schema()
+export class Collaborator {
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  userId: Types.ObjectId;
+
+  @Prop({ required: true })
+  addedAt: Date;
+
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  addedBy: Types.ObjectId; // User who added this collaborator
+}
+
+@Schema()
 export class GeneratedClip {
   @Prop({ required: true })
   clipId: string;
@@ -69,6 +126,9 @@ export class GeneratedClip {
   videoUrl?: string; // URL to the generated video clip
 
   @Prop()
+  clipUrl?: string; // URL to the generated clip (alias for videoUrl)
+
+  @Prop()
   fileSize?: number; // File size in bytes
 
   @Prop({
@@ -82,6 +142,13 @@ export class GeneratedClip {
 
   @Prop({ default: Date.now })
   generatedAt: Date;
+
+  @Prop({ type: Object, default: {} })
+  metadata?: Record<string, any>;
+
+  // Voting system for each generated clip
+  @Prop({ type: ClipVoting, default: () => ({}) })
+  voting: ClipVoting;
 }
 
 @Schema({ timestamps: true })
@@ -139,6 +206,10 @@ export class Clip {
   @Prop({ type: [GeneratedClip], default: [] })
   generatedClips: GeneratedClip[];
 
+  // Collaborators for this clip project
+  @Prop({ type: [Collaborator], default: [] })
+  collaborators: Collaborator[];
+
   // Processing timestamps
   @Prop()
   analysisStartedAt?: Date;
@@ -161,6 +232,15 @@ export class Clip {
 
   @Prop({ default: 0 })
   estimatedCost: number; // Estimated cost in USD
+
+  @Prop()
+  awsFileUrl?: string; // AWS S3 URL for uploaded files
+
+  @Prop()
+  completedAt?: Date; // When clip generation completed
+
+  @Prop({ type: Object, default: {} })
+  metadata?: Record<string, any>; // Additional metadata
 
   @Prop({
     type: {

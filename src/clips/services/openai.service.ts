@@ -2,7 +2,17 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { OpenAIModel } from '../../schemas/clip.schema';
-import { ThemeDto, GeneratedClipDto } from '../dto/clips.dto';
+import { GeneratedClipDto } from '../dto/clips.dto';
+
+// Local interface for backward compatibility (not used in simplified API)
+interface ThemeDto {
+  title: string;
+  description: string;
+  angle: string;
+  confidence: number;
+  keywords?: string[];
+  timeRanges?: number[];
+}
 
 export interface SRTEntry {
   index: number;
@@ -123,7 +133,7 @@ export class OpenAIService {
   async analyzeThemes(
     srtContent: string,
     model: OpenAIModel = OpenAIModel.GPT_4_MINI,
-  ): Promise<{ themes: ThemeDto[]; tokenUsage: TokenUsage }> {
+  ): Promise<{ themes: ThemeDto[] }> {
     if (!this.openai) {
       throw new Error('OpenAI service is not configured');
     }
@@ -201,14 +211,7 @@ Make sure the JSON is valid and properly formatted.`;
         throw new Error('Invalid JSON response from OpenAI');
       }
 
-      // Calculate token usage and cost
-      const tokenUsage = this.calculateTokenUsage(completion.usage, model);
-
-      this.logger.log(
-        `Theme analysis completed. Found ${themes.length} themes. Cost: $${tokenUsage.estimatedCost.toFixed(4)}`,
-      );
-
-      return { themes, tokenUsage };
+      return { themes };
     } catch (error) {
       this.logger.error('Error analyzing themes:', error);
       throw error;
@@ -223,7 +226,7 @@ Make sure the JSON is valid and properly formatted.`;
     selectedTheme: ThemeDto,
     clipCount: number,
     model: OpenAIModel = OpenAIModel.GPT_4_MINI,
-  ): Promise<{ clips: GeneratedClipDto[]; tokenUsage: TokenUsage }> {
+  ): Promise<{ clips: GeneratedClipDto[] }> {
     if (!this.openai) {
       throw new Error('OpenAI service is not configured');
     }
@@ -319,39 +322,11 @@ Ensure:
         generatedAt: new Date(),
       }));
 
-      // Calculate token usage and cost
-      const tokenUsage = this.calculateTokenUsage(completion.usage, model);
-
-      this.logger.log(
-        `Clip generation completed. Generated ${clips.length} clips. Cost: $${tokenUsage.estimatedCost.toFixed(4)}`,
-      );
-
-      return { clips, tokenUsage };
+      return { clips };
     } catch (error) {
       this.logger.error('Error generating clips:', error);
       throw error;
     }
-  }
-
-  /**
-   * Calculate token usage and estimated cost
-   */
-  private calculateTokenUsage(usage: any, model: OpenAIModel): TokenUsage {
-    const promptTokens = usage?.prompt_tokens || 0;
-    const completionTokens = usage?.completion_tokens || 0;
-    const totalTokens = usage?.total_tokens || promptTokens + completionTokens;
-
-    const pricing = this.PRICING[model];
-    const estimatedCost =
-      (promptTokens / 1000) * pricing.input +
-      (completionTokens / 1000) * pricing.output;
-
-    return {
-      promptTokens,
-      completionTokens,
-      totalTokens,
-      estimatedCost,
-    };
   }
 
   /**
