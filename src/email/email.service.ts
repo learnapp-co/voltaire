@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ResendService } from './services/resend.service';
+import { BrevoService } from './services/brevo.service';
 import {
   SendEmailDto,
   WelcomeEmailDto,
@@ -12,15 +12,15 @@ import {
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
 
-  constructor(private readonly resendService: ResendService) {
-    this.logger.log('📧 EmailService initialized with Resend API');
+  constructor(private readonly brevoService: BrevoService) {
+    this.logger.log('📧 EmailService initialized with Brevo API');
   }
 
   /**
    * Send a generic email
    */
   async sendEmail(data: SendEmailDto): Promise<EmailResponseDto> {
-    return this.resendService.sendTestEmail(data.to);
+    return this.brevoService.sendTestEmail(data.to);
   }
 
   /**
@@ -28,7 +28,7 @@ export class EmailService {
    */
   async sendWelcomeEmail(data: WelcomeEmailDto): Promise<EmailResponseDto> {
     this.logger.log(`📧 Sending welcome email to ${data.email}`);
-    return this.resendService.sendWelcomeEmail(data);
+    return this.brevoService.sendWelcomeEmail(data);
   }
 
   /**
@@ -38,7 +38,7 @@ export class EmailService {
     data: PasswordResetEmailDto,
   ): Promise<EmailResponseDto> {
     this.logger.log(`📧 Sending password reset email to ${data.email}`);
-    return this.resendService.sendPasswordResetEmail(data);
+    return this.brevoService.sendPasswordResetEmail(data);
   }
 
   /**
@@ -48,7 +48,7 @@ export class EmailService {
     data: CollaboratorInvitationEmailDto,
   ): Promise<EmailResponseDto> {
     this.logger.log(`📧 Sending collaborator invitation to ${data.email}`);
-    return this.resendService.sendCollaboratorInvitation(data);
+    return this.brevoService.sendCollaboratorInvitation(data);
   }
 
   /**
@@ -56,7 +56,7 @@ export class EmailService {
    */
   async testEmailConfiguration(): Promise<EmailResponseDto> {
     this.logger.log('📧 Testing email configuration');
-    return this.resendService.sendTestEmail('test@example.com');
+    return this.brevoService.sendTestEmail('test@example.com');
   }
 
   /**
@@ -64,6 +64,6 @@ export class EmailService {
    */
   async sendTestEmail(to: string): Promise<EmailResponseDto> {
     this.logger.log(`📧 Sending test email to ${to}`);
-    return this.resendService.sendTestEmail(to);
+    return this.brevoService.sendTestEmail(to);
   }
 }

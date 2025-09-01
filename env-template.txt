@@ -18,9 +18,10 @@ AWS_S3_BUCKET=your-s3-bucket-name
 
 OPENAI_API_KEY=sk-your-openai-api-key
 
-# Email Configuration (using Resend API)
-RESEND_API_KEY=re_your-resend-api-key
+# Email Configuration (using Brevo API)
+BREVO_API_KEY=xkeysib-your-brevo-api-key
 EMAIL_FROM=noreply@yourapp.com
+EMAIL_FROM_NAME=ClipFlow
 FRONTEND_URL=https://your-app.railway.app
 
 # === OPTIONAL ===
