@@ -12,6 +12,7 @@ import {
   ClipDocument,
   ClipStatus,
   GeneratedClip,
+  ClipMilestone,
 } from '../schemas/clip.schema';
 import { VideoProcessingService } from './services/video-processing.service';
 import { S3UploadService } from './services/s3-upload.service';
@@ -127,6 +128,18 @@ export class ClipsService {
   }
 
   /**
+   * Get raw clip data including srtContent (for internal use)
+   */
+  async getRawClipData(clipId: string, userId: string): Promise<ClipDocument> {
+    try {
+      return await this.findClipByIdAndUser(clipId, userId);
+    } catch (error) {
+      this.logger.error('Error getting raw clip data:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Update clip project with generated clips and timestamps
    */
   async updateClipProject(
@@ -145,18 +158,15 @@ export class ClipsService {
         clip.description = updateDto.description;
       }
 
-      if (updateDto.generatedClips) {
-        clip.generatedClips = updateDto.generatedClips.map((clipData) => ({
-          clipId: clipData.id,
-          title: clipData.title,
-          startTime: clipData.startTime,
-          endTime: clipData.endTime,
-          duration: clipData.duration,
-          clipUrl: clipData.clipUrl,
-          fileSize: clipData.fileSize,
-          generatedAt: clipData.generatedAt,
-          processingStatus: 'completed',
-        })) as GeneratedClip[];
+      if (updateDto.themes) {
+        // Validate and update themes
+        const validThemes = updateDto.themes.filter(
+          (theme) => theme && theme.trim().length > 0,
+        );
+        clip.themes = validThemes;
+        this.logger.log(
+          `Updated themes for clip ${clipId}: ${validThemes.join(', ')}`,
+        );
       }
 
       clip.updatedAt = new Date();
@@ -222,6 +232,7 @@ export class ClipsService {
             clipUrl: '', // Will be updated after processing
             fileSize: 0, // Will be updated after processing
             generatedAt: new Date(),
+            milestone: ClipMilestone.RAW_CLIP,
             processingStatus: 'processing',
             voting: {
               shouldThisBePosted: {
@@ -235,6 +246,27 @@ export class ClipsService {
                 rating4: [],
                 rating5: [],
               },
+            },
+            titleThumbnailGeneration: {
+              generatedTitles: [],
+              generatedThumbnailHeaders: [],
+              selectedTones: [],
+              selectedAIModel: 'gpt-4o' as any,
+              titleVoting: {
+                isPollActive: false,
+                isPollClosed: false,
+                isSaved: false,
+                votes: [],
+                pollOptions: [],
+              },
+              thumbnailVoting: {
+                isPollActive: false,
+                isPollClosed: false,
+                isSaved: false,
+                votes: [],
+                pollOptions: [],
+              },
+              isComplete: false,
             },
             metadata: {
               quality: generateDto.quality || 'medium',
@@ -315,6 +347,7 @@ export class ClipsService {
             clipUrl: '',
             fileSize: 0,
             generatedAt: new Date(),
+            milestone: ClipMilestone.RAW_CLIP,
             processingStatus: 'failed',
             voting: {
               shouldThisBePosted: {
@@ -328,6 +361,27 @@ export class ClipsService {
                 rating4: [],
                 rating5: [],
               },
+            },
+            titleThumbnailGeneration: {
+              generatedTitles: [],
+              generatedThumbnailHeaders: [],
+              selectedTones: [],
+              selectedAIModel: 'gpt-4o' as any,
+              titleVoting: {
+                isPollActive: false,
+                isPollClosed: false,
+                isSaved: false,
+                votes: [],
+                pollOptions: [],
+              },
+              thumbnailVoting: {
+                isPollActive: false,
+                isPollClosed: false,
+                isSaved: false,
+                votes: [],
+                pollOptions: [],
+              },
+              isComplete: false,
             },
             metadata: {
               error: error.message,
@@ -375,6 +429,7 @@ export class ClipsService {
           clipUrl: genClip.clipUrl,
           fileSize: genClip.fileSize,
           generatedAt: genClip.generatedAt,
+          milestone: genClip.milestone || ClipMilestone.RAW_CLIP,
           processingStatus: genClip.processingStatus,
         })),
         generationCompletedAt: new Date(),
@@ -502,6 +557,7 @@ export class ClipsService {
         clipUrl: clipResult.clipUrl,
         fileSize: clipResult.fileSize,
         generatedAt: new Date(),
+        milestone: ClipMilestone.RAW_CLIP,
         processingStatus: 'completed',
       };
     } catch (error) {
@@ -655,13 +711,8 @@ export class ClipsService {
         fileName: clip.rawFileName,
         fileSize: clip.rawFileSize,
       },
-      srtFile: clip.srtFileName
-        ? {
-            fileName: clip.srtFileName,
-            url: `/uploads/srt/${clip.srtFileName}`,
-          }
-        : undefined,
       totalDuration: clip.totalDuration,
+      themes: clip.themes || [],
       createdAt: clip.createdAt!,
       updatedAt: clip.updatedAt!,
     };

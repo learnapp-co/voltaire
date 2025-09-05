@@ -223,6 +223,7 @@ export class S3UploadService {
         Key: uniqueFileName,
         ContentType: request.fileType,
         ContentLength: request.fileSize,
+        ACL: 'public-read', // Make uploaded files publicly accessible
       });
 
       const expiresIn = 3600; // 1 hour
@@ -275,6 +276,7 @@ export class S3UploadService {
         Bucket: this.bucketName,
         Key: uniqueFileName,
         ContentType: request.fileType,
+        ACL: 'public-read', // Make uploaded files publicly accessible
       });
 
       const response = await this.s3Client.send(command);
@@ -497,6 +499,7 @@ export class S3UploadService {
         Key: clipKey,
         Body: fileBuffer,
         ContentType: `video/${format}`,
+        ACL: 'public-read', // Make uploaded files publicly accessible
         Metadata: {
           projectId,
           clipId,

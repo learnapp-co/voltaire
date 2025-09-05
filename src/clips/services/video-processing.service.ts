@@ -346,9 +346,65 @@ export class VideoProcessingService {
   }
 
   /**
-   * Extract a clip from a source video and upload to S3
+   * Extract a clip from a source video and upload to S3 (with retry logic for Railway)
    */
   async extractClip(options: ExtractClipOptions): Promise<ExtractClipResult> {
+    const maxRetries = 2; // Allow 2 retries for Railway stability
+    let lastError: Error;
+
+    for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+      try {
+        this.logger.log(
+          `🔄 Video processing attempt ${attempt}/${maxRetries + 1} for clip ${options.clipId}`,
+        );
+        return await this.extractClipInternal(options, attempt);
+      } catch (error) {
+        lastError = error;
+        this.logger.error(`❌ Attempt ${attempt} failed: ${error.message}`);
+
+        // Don't retry if it's not a resource-related error
+        if (!this.isRetryableError(error)) {
+          this.logger.log('🚫 Error is not retryable, failing immediately');
+          throw error;
+        }
+
+        if (attempt <= maxRetries) {
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // Exponential backoff, max 5s
+          this.logger.log(`⏳ Retrying in ${delay}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+    }
+
+    throw lastError;
+  }
+
+  /**
+   * Check if an error is retryable (resource-related issues)
+   */
+  private isRetryableError(error: Error): boolean {
+    const retryableMessages = [
+      'SIGKILL',
+      'memory',
+      'timeout',
+      'killed',
+      'ENOMEM',
+      'resource temporarily unavailable',
+      'was killed with signal',
+    ];
+
+    return retryableMessages.some((msg) =>
+      error.message.toLowerCase().includes(msg.toLowerCase()),
+    );
+  }
+
+  /**
+   * Internal method for single attempt at extracting clip
+   */
+  private async extractClipInternal(
+    options: ExtractClipOptions,
+    attempt: number,
+  ): Promise<ExtractClipResult> {
     const {
       sourceVideoUrl,
       startTime,
@@ -361,6 +417,11 @@ export class VideoProcessingService {
       clipId,
     } = options;
 
+    // Use lower quality for retries to reduce memory usage
+    const adjustedQuality = attempt > 1 ? 'low' : quality;
+    // Skip fades on retries for performance
+    const adjustedIncludeFades = includeFades && attempt === 1;
+
     const duration = endTime - startTime;
     const outputFileName = `${userId}_${projectId}_${clipId}_${Date.now()}.${outputFormat}`;
     const outputPath = path.join(this.outputPath, outputFileName);
@@ -368,10 +429,10 @@ export class VideoProcessingService {
     let tempSourcePath: string | undefined;
 
     this.logger.log(
-      `🎬 Extracting clip ${clipId} from ${sourceVideoUrl}, start: ${startTime}s, end: ${endTime}s`,
+      `🎬 Extracting clip ${clipId} (attempt ${attempt}) from ${sourceVideoUrl}, start: ${startTime}s, end: ${endTime}s`,
     );
     this.logger.log(
-      `⚙️ Processing settings - Quality: ${quality}, Format: ${outputFormat}, Duration: ${duration}s`,
+      `⚙️ Processing settings - Quality: ${adjustedQuality} (original: ${quality}), Format: ${outputFormat}, Duration: ${duration}s, Fades: ${adjustedIncludeFades}`,
     );
     this.logger.log(`📁 Output file: ${outputFileName}`);
 
@@ -399,8 +460,8 @@ export class VideoProcessingService {
         startTime,
         duration,
         outputPath,
-        quality,
-        includeFades,
+        adjustedQuality,
+        adjustedIncludeFades,
       );
       this.logger.log(
         `✅ FFmpeg processing completed - Size: ${localResult.fileSize} bytes`,
@@ -443,7 +504,7 @@ export class VideoProcessingService {
   }
 
   /**
-   * Process video locally with FFmpeg
+   * Process video locally with FFmpeg (optimized for Railway)
    */
   private async processVideoLocally(
     sourceVideoUrl: string,
@@ -454,50 +515,122 @@ export class VideoProcessingService {
     includeFades: boolean,
   ): Promise<{ fileSize: number }> {
     return new Promise((resolve, reject) => {
+      // Set a timeout to prevent infinite hanging (Railway has 30min timeout)
+      const timeoutMs = 25 * 60 * 1000; // 25 minutes
+      const timeout = setTimeout(() => {
+        this.logger.error('FFmpeg process timed out, killing...');
+        command.kill('SIGKILL');
+        reject(new Error('Video processing timed out'));
+      }, timeoutMs);
+
       let command = ffmpeg(sourceVideoUrl)
         .seekInput(startTime)
         .duration(duration)
-        .output(outputPath);
+        .output(outputPath)
+        // Railway optimization: limit memory usage
+        .addOptions([
+          '-threads',
+          '2', // Limit CPU threads for Railway
+          '-preset',
+          'fast', // Faster encoding, less CPU intensive
+          '-movflags',
+          '+faststart', // Optimize for streaming
+          '-avoid_negative_ts',
+          'make_zero', // Avoid timestamp issues
+        ]);
 
-      // Set quality settings
+      // Set quality settings optimized for Railway
       switch (quality) {
         case 'low':
-          command = command.videoBitrate('500k').audioBitrate('64k');
+          command = command
+            .videoBitrate('400k')
+            .audioBitrate('64k')
+            .size('640x360') // Reduce resolution for faster processing
+            .fps(24); // Reduce fps for lower resource usage
           break;
         case 'high':
-          command = command.videoBitrate('2000k').audioBitrate('192k');
+          command = command
+            .videoBitrate('1500k')
+            .audioBitrate('128k')
+            .size('1280x720') // Cap at 720p for Railway limits
+            .fps(30);
           break;
         default: // medium
-          command = command.videoBitrate('1000k').audioBitrate('128k');
+          command = command
+            .videoBitrate('800k')
+            .audioBitrate('96k')
+            .size('854x480') // 480p for balance
+            .fps(25);
       }
 
-      // Add fade effects if requested
-      if (includeFades) {
+      // Add fade effects if requested (simplified for performance)
+      if (includeFades && duration > 2) {
+        // Only add fades for longer clips
+        const fadeFrames = Math.min(15, Math.floor(duration * 12)); // Shorter fades
         command = command.videoFilters([
-          'fade=in:0:30',
-          `fade=out:${Math.max(0, duration * 30 - 30)}:30`,
+          `fade=in:0:${fadeFrames}`,
+          `fade=out:${Math.max(0, duration * 25 - fadeFrames)}:${fadeFrames}`,
         ]);
       }
 
+      // Add Railway-specific optimizations
+      command = command.addOptions([
+        '-maxrate',
+        quality === 'high' ? '1500k' : quality === 'low' ? '400k' : '800k',
+        '-bufsize',
+        quality === 'high' ? '3000k' : quality === 'low' ? '800k' : '1600k',
+        '-profile:v',
+        'baseline', // Use baseline profile for better compatibility
+        '-level',
+        '3.0',
+        '-pix_fmt',
+        'yuv420p', // Ensure compatibility
+      ]);
+
       command
         .on('start', (commandLine) => {
-          this.logger.log(`FFmpeg process started: ${commandLine}`);
+          this.logger.log(
+            `FFmpeg process started (Railway optimized): ${commandLine}`,
+          );
         })
         .on('progress', (progress) => {
           this.logger.debug(
-            `Processing: ${Math.round(progress.percent || 0)}% done`,
+            `Processing: ${Math.round(progress.percent || 0)}% done, time: ${progress.timemark}`,
           );
         })
         .on('end', () => {
+          clearTimeout(timeout);
           this.logger.log(`Local clip generation completed: ${outputPath}`);
 
           // Get file stats
-          const stats = fs.statSync(outputPath);
-          resolve({ fileSize: stats.size });
+          try {
+            const stats = fs.statSync(outputPath);
+            resolve({ fileSize: stats.size });
+          } catch (error) {
+            this.logger.error(`Error getting file stats: ${error.message}`);
+            reject(new Error('Failed to get output file stats'));
+          }
         })
         .on('error', (error) => {
+          clearTimeout(timeout);
           this.logger.error(`FFmpeg error: ${error.message}`);
-          reject(error);
+
+          // Provide more specific error information
+          if (error.message.includes('SIGKILL')) {
+            reject(
+              new Error(
+                'Video processing was killed (likely due to memory limits). Try with lower quality setting.',
+              ),
+            );
+          } else if (error.message.includes('timeout')) {
+            reject(
+              new Error(
+                'Video processing timed out. The clip might be too long or complex.',
+              ),
+            );
+          } else {
+            reject(error);
+          }
         })
         .run();
     });
@@ -563,6 +696,432 @@ export class VideoProcessingService {
   }
 
   /**
+   * Extract multiple segments from a video and stitch them together
+   */
+  async extractAndStitchSegments(
+    options: ExtractMultiSegmentOptions,
+  ): Promise<ExtractClipResult> {
+    const {
+      sourceVideoUrl,
+      segments,
+      outputFormat = 'mp4',
+      quality = 'medium',
+      includeFades = false,
+      userId,
+      projectId,
+      clipId,
+    } = options;
+
+    const outputFileName = `${userId}_${projectId}_${clipId}_franken_${Date.now()}.${outputFormat}`;
+    const outputPath = path.join(this.outputPath, outputFileName);
+
+    let tempSourcePath: string | undefined;
+    const tempSegmentPaths: string[] = [];
+
+    this.logger.log(
+      `🎬 Extracting ${segments.length} segments for Franken-Clip ${clipId} from ${sourceVideoUrl}`,
+    );
+
+    try {
+      // Step 1: Generate signed URL for S3 videos so FFmpeg can access them
+      if (this.s3UploadService.isValidS3Url(sourceVideoUrl)) {
+        this.logger.log(
+          `🔗 Source is S3 URL, generating signed URL for FFmpeg access: ${clipId}`,
+        );
+        tempSourcePath =
+          await this.s3UploadService.generateSignedReadUrl(sourceVideoUrl);
+        this.logger.log(`✅ Generated signed URL for FFmpeg input`);
+      } else {
+        this.logger.log(
+          `📁 Source is local file, using direct path: ${sourceVideoUrl}`,
+        );
+        tempSourcePath = sourceVideoUrl;
+      }
+
+      // Step 2: Extract each segment individually
+      this.logger.log(
+        `🎞️ Extracting ${segments.length} individual segments...`,
+      );
+      for (let i = 0; i < segments.length; i++) {
+        const segment = segments[i];
+        const segmentFileName = `segment_${i + 1}_${clipId}_${Date.now()}.${outputFormat}`;
+        const segmentPath = path.join(this.outputPath, segmentFileName);
+
+        this.logger.log(
+          `📹 Extracting segment ${i + 1}/${segments.length}: ${segment.startTime}s to ${segment.endTime}s (purpose: ${segment.purpose})`,
+        );
+
+        await this.extractSingleSegment(
+          tempSourcePath,
+          segment.startTime,
+          segment.endTime - segment.startTime,
+          segmentPath,
+          quality,
+        );
+
+        tempSegmentPaths.push(segmentPath);
+        this.logger.log(`✅ Segment ${i + 1} extracted successfully`);
+      }
+
+      // Step 3: Stitch all segments together
+      this.logger.log(
+        `🔧 Stitching ${tempSegmentPaths.length} segments together...`,
+      );
+      const totalDuration = segments.reduce(
+        (total, segment) => total + segment.duration,
+        0,
+      );
+
+      await this.stitchSegments(tempSegmentPaths, outputPath, includeFades);
+      this.logger.log(`✅ Segments stitched successfully`);
+
+      // Step 4: Get file stats
+      const stats = fs.statSync(outputPath);
+      const fileSize = stats.size;
+
+      // Step 5: Upload to S3
+      this.logger.log(`☁️ Uploading Franken-Clip ${clipId} to S3...`);
+      const clipUrl = await this.s3UploadService.uploadLocalFileToS3(
+        outputPath,
+        projectId,
+        clipId,
+        outputFormat,
+      );
+      this.logger.log(`✅ S3 upload completed: ${clipUrl}`);
+
+      // Step 6: Clean up all temporary files
+      this.logger.log(`🧹 Cleaning up temporary files...`);
+      this.cleanupTempFiles([outputPath, ...tempSegmentPaths]);
+
+      this.logger.log(
+        `🎉 Successfully processed and uploaded Franken-Clip ${clipId} with ${segments.length} segments to S3: ${clipUrl}`,
+      );
+
+      return {
+        clipUrl,
+        fileSize,
+        duration: totalDuration,
+        format: outputFormat,
+        processedAt: new Date(),
+      };
+    } catch (error) {
+      this.logger.error(
+        `Error extracting and stitching segments for clip ${clipId}:`,
+        error,
+      );
+
+      // Clean up all temporary files on error
+      this.cleanupTempFiles([outputPath, ...tempSegmentPaths]);
+
+      throw error;
+    }
+  }
+
+  /**
+   * Extract a single segment from video
+   */
+  private async extractSingleSegment(
+    sourceVideoUrl: string,
+    startTime: number,
+    duration: number,
+    outputPath: string,
+    quality: string,
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      let command = ffmpeg(sourceVideoUrl)
+        .seekInput(startTime)
+        .duration(duration)
+        .output(outputPath);
+
+      // Set quality settings
+      switch (quality) {
+        case 'low':
+          command = command.videoBitrate('500k').audioBitrate('64k');
+          break;
+        case 'high':
+          command = command.videoBitrate('2000k').audioBitrate('192k');
+          break;
+        default: // medium
+          command = command.videoBitrate('1000k').audioBitrate('128k');
+      }
+
+      command
+        .on('start', (commandLine) => {
+          this.logger.debug(
+            `FFmpeg segment extraction started: ${commandLine}`,
+          );
+        })
+        .on('progress', (progress) => {
+          this.logger.debug(
+            `Segment extraction: ${Math.round(progress.percent || 0)}% done`,
+          );
+        })
+        .on('end', () => {
+          this.logger.debug(`Segment extraction completed: ${outputPath}`);
+          resolve();
+        })
+        .on('error', (error) => {
+          this.logger.error(
+            `FFmpeg segment extraction error: ${error.message}`,
+          );
+          reject(error);
+        })
+        .run();
+    });
+  }
+
+  /**
+   * Stitch multiple video segments together
+   */
+  private async stitchSegments(
+    segmentPaths: string[],
+    outputPath: string,
+    includeFades: boolean = false,
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (segmentPaths.length === 0) {
+        reject(new Error('No segments provided for stitching'));
+        return;
+      }
+
+      if (segmentPaths.length === 1) {
+        // If only one segment, just copy it
+        fs.copyFileSync(segmentPaths[0], outputPath);
+        resolve();
+        return;
+      }
+
+      this.logger.log(
+        `Stitching ${segmentPaths.length} segments using concat demuxer method`,
+      );
+
+      // Use concat demuxer method which is more reliable for identical formats
+      this.stitchUsingConcatDemuxer(segmentPaths, outputPath, includeFades)
+        .then(resolve)
+        .catch((concatError) => {
+          this.logger.warn(
+            `Concat demuxer failed: ${concatError.message}, trying complex filter method`,
+          );
+
+          // Fallback to complex filter method
+          this.stitchUsingComplexFilter(segmentPaths, outputPath, includeFades)
+            .then(resolve)
+            .catch(reject);
+        });
+    });
+  }
+
+  /**
+   * Stitch using concat demuxer (faster, more reliable for same-format files)
+   */
+  private async stitchUsingConcatDemuxer(
+    segmentPaths: string[],
+    outputPath: string,
+    includeFades: boolean,
+  ): Promise<void> {
+    // Check if output directory exists and create it if needed
+    const outputDir = path.dirname(outputPath);
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+    return new Promise((resolve, reject) => {
+      // Create temporary concat file list with absolute paths
+      const concatListPath = path.resolve(
+        this.outputPath,
+        `concat_list_${Date.now()}.txt`,
+      );
+
+      // Convert all segment paths to absolute paths and verify they exist
+      const absoluteSegmentPaths: string[] = [];
+      for (const segmentPath of segmentPaths) {
+        const absolutePath = path.resolve(segmentPath);
+        if (!fs.existsSync(absolutePath)) {
+          throw new Error(`Segment file not found: ${absolutePath}`);
+        }
+        absoluteSegmentPaths.push(absolutePath);
+      }
+
+      this.logger.debug(`Creating concat list file: ${concatListPath}`);
+      this.logger.debug(
+        `Segment files to concatenate: ${absoluteSegmentPaths.join(', ')}`,
+      );
+
+      try {
+        // Ensure output directory exists
+        const concatDir = path.dirname(concatListPath);
+        if (!fs.existsSync(concatDir)) {
+          fs.mkdirSync(concatDir, { recursive: true });
+        }
+
+        // Ensure proper escaping of paths in the concat file
+        const escapedConcatContent = absoluteSegmentPaths
+          .map(
+            (p) =>
+              `file '${p.replace(/'/g, "'\\''")}' # ${new Date().toISOString()}`,
+          )
+          .join('\n');
+
+        fs.writeFileSync(concatListPath, escapedConcatContent);
+
+        // Verify file was created and is readable
+        if (!fs.existsSync(concatListPath)) {
+          throw new Error(
+            `Failed to create concat list file: ${concatListPath}`,
+          );
+        }
+
+        const fileStats = fs.statSync(concatListPath);
+        this.logger.debug(
+          `Concat list file created successfully: ${concatListPath} (${fileStats.size} bytes)`,
+        );
+
+        // Check if output directory exists and is writable
+        try {
+          // Test write access to output directory
+          const testFile = path.join(
+            path.dirname(outputPath),
+            `.test_${Date.now()}`,
+          );
+          fs.writeFileSync(testFile, 'test');
+          fs.unlinkSync(testFile);
+        } catch (err) {
+          throw new Error(
+            `Output directory is not writable: ${path.dirname(outputPath)}: ${err.message}`,
+          );
+        }
+
+        let command = ffmpeg()
+          .input(concatListPath)
+          .inputOptions(['-f', 'concat', '-safe', '0'])
+          .videoCodec('copy')
+          .audioCodec('copy')
+          .outputOptions(['-movflags', '+faststart'])
+          .output(outputPath);
+
+        // Add fade effects if requested (note: this disables stream copy)
+        if (includeFades) {
+          command = command
+            .videoCodec('libx264')
+            .audioCodec('aac')
+            .videoFilters(['fade=in:0:30', 'fade=out:st=end-1:d=1']);
+        }
+
+        command
+          .on('start', (commandLine) => {
+            this.logger.log(`FFmpeg concat demuxer started: ${commandLine}`);
+          })
+          .on('progress', (progress) => {
+            this.logger.debug(
+              `Concat progress: ${Math.round(progress.percent || 0)}% done`,
+            );
+          })
+          .on('end', () => {
+            // Clean up concat list file
+            fs.unlink(concatListPath, () => {});
+            this.logger.log(`Concat demuxer completed: ${outputPath}`);
+            resolve();
+          })
+          .on('error', (error) => {
+            // Clean up concat list file
+            fs.unlink(concatListPath, () => {});
+            this.logger.error(`FFmpeg concat demuxer error: ${error.message}`);
+            reject(error);
+          })
+          .run();
+      } catch (fsError) {
+        this.logger.error(
+          `Error creating concat list file: ${fsError.message}`,
+        );
+        reject(fsError);
+      }
+    });
+  }
+
+  /**
+   * Stitch using complex filter (fallback method, more compatible but slower)
+   */
+  private async stitchUsingComplexFilter(
+    segmentPaths: string[],
+    outputPath: string,
+    includeFades: boolean,
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      // Create FFmpeg command for concatenation
+      let command = ffmpeg();
+
+      // Add all input files
+      segmentPaths.forEach((segmentPath) => {
+        command = command.input(segmentPath);
+      });
+
+      // Set up concatenation
+      command = command
+        .on('start', (commandLine) => {
+          this.logger.log(`FFmpeg complex filter started: ${commandLine}`);
+        })
+        .on('progress', (progress) => {
+          this.logger.debug(
+            `Complex filter progress: ${Math.round(progress.percent || 0)}% done`,
+          );
+        })
+        .on('end', () => {
+          this.logger.log(`Complex filter completed: ${outputPath}`);
+          resolve();
+        })
+        .on('error', (error) => {
+          this.logger.error(`FFmpeg complex filter error: ${error.message}`);
+          reject(error);
+        });
+
+      try {
+        // Use a simpler filter approach that's more tolerant of stream issues
+        let filterComplex = '';
+
+        // Create input chains
+        for (let i = 0; i < segmentPaths.length; i++) {
+          if (i > 0) filterComplex += '[';
+          if (i > 0) filterComplex += 'v' + (i - 1);
+          if (i > 0) filterComplex += '][';
+          if (i > 0) filterComplex += 'a' + (i - 1);
+          if (i > 0) filterComplex += ']';
+          filterComplex += `[${i}:v][${i}:a]`;
+          filterComplex += `concat=n=1:v=1:a=1`;
+          if (i < segmentPaths.length - 1) {
+            filterComplex += `[v${i}][a${i}]`;
+          } else {
+            filterComplex += '[outv][outa]';
+          }
+          if (i < segmentPaths.length - 1) filterComplex += ';';
+        }
+
+        this.logger.debug(`Using filter complex: ${filterComplex}`);
+
+        command = command
+          .complexFilter(filterComplex)
+          .outputOptions(['-map', '[outv]', '-map', '[outa]'])
+          .videoCodec('libx264')
+          .audioCodec('aac')
+          .output(outputPath);
+
+        // Add fade effects if requested
+        if (includeFades) {
+          // Note: Fades with concat filter require more complex filter graph
+          this.logger.warn(
+            'Fade effects with complex filter not fully implemented yet',
+          );
+        }
+
+        command.run();
+      } catch (filterError) {
+        this.logger.error(
+          `Error building complex filter: ${filterError.message}`,
+        );
+        reject(filterError);
+      }
+    });
+  }
+
+  /**
    * Clean up temporary files
    */
   private cleanupTempFiles(filePaths: (string | undefined)[]): void {
@@ -583,6 +1142,23 @@ export interface ExtractClipOptions {
   sourceVideoUrl: string;
   startTime: number;
   endTime: number;
+  outputFormat?: string;
+  quality?: string;
+  includeFades?: boolean;
+  userId: string;
+  projectId: string;
+  clipId: string;
+}
+
+export interface ExtractMultiSegmentOptions {
+  sourceVideoUrl: string;
+  segments: Array<{
+    startTime: number;
+    endTime: number;
+    duration: number;
+    purpose: string;
+    sequenceOrder: number;
+  }>;
   outputFormat?: string;
   quality?: string;
   includeFades?: boolean;

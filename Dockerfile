@@ -1,8 +1,9 @@
 # Use Node.js 20.19.0 Alpine for smaller image size
 FROM node:20.19.0-alpine
 
-# Install FFmpeg and other dependencies
-RUN apk add --no-cache ffmpeg
+# Install FFmpeg and other dependencies (optimized for Railway)
+RUN apk add --no-cache ffmpeg \
+    && ffmpeg -version
 
 # Set working directory
 WORKDIR /app
@@ -31,8 +32,10 @@ RUN adduser -S nestjs -u 1001
 # Switch to non-root user
 USER nestjs
 
-# Set upload path to writable location
+# Set environment variables for Railway optimization
 ENV UPLOAD_PATH=/tmp/uploads
+ENV NODE_OPTIONS="--max-old-space-size=3072"
+ENV FFMPEG_THREADS=2
 
 # Expose port
 EXPOSE 3000
